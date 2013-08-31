@@ -1,39 +1,4 @@
 ﻿#include "LwtBho.h"
-//#include "C:\\Users\\Luis\\Desktop\\charlie\\prog\\utilities\\resedit\\projects\\resource.h"
-//#include "assert.h"
-//#include "dbdriver.h"
-//#include <Windows.h>
-//#include "tchar.h"
-//#include "stdio.h"
-//#include "Ocidl.h"
-//#include "exdisp.h"
-//#include "exdispid.h"
-//#include "shlguid.h"
-//#include "mshtml.h"
-//#include "comutil.h"
-//#include "connection.h"
-//#include "query.h"
-//#include "result.h"
-//#include "manip.h"
-//#include <fstream>
-//#include <sstream>
-//#include <vector>
-//#include <map>
-//#include <unordered_map>
-//#include <unordered_set>
-//#include <stack>
-//#include <algorithm>
-//#include <regex>
-//#include <mshtmdid.h>
-//#include "comip.h"
-//#include "tiodbc.hpp"
-//#include "chajUtil.h"
-//#include "chajDOM.h"
-//using namespace mysqlpp;
-//using namespace std;
-//using namespace chaj;
-//using namespace chaj::DOM;
-//using namespace chaj::COM;
 
 #ifndef _DEBUG
 	const CLSID BhoCLSID = {0xe72bb92,0x73d4,0x4bef,0xbc,0x8,0xfe,0x3b,0x96,0x85,0x93,0xa3};
@@ -48,14 +13,17 @@
 #endif
 
 class MyClassFactory : public IClassFactory
-{ long ref;
-  public:
-  // IUnknown... (nb. this class is instantiated statically, which is why Release() doesn't delete it.)
-  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) {if (riid==IID_IUnknown || riid==IID_IClassFactory) {*ppv=this; AddRef(); return S_OK;} else return E_NOINTERFACE;}
-  ULONG STDMETHODCALLTYPE AddRef() {InterlockedIncrement(&gref); return InterlockedIncrement(&ref);}
-  ULONG STDMETHODCALLTYPE Release() {int tmp = InterlockedDecrement(&ref); InterlockedDecrement(&gref); return tmp;}
-  // IClassFactory...
-  HRESULT STDMETHODCALLTYPE LockServer(BOOL b) {if (b) InterlockedIncrement(&gref); else InterlockedDecrement(&gref); return S_OK;}
+{
+	long ref;
+public:
+	
+	// IUnknown... (nb. this class is instantiated statically, which is why Release() doesn't delete it.)
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) {if (riid==IID_IUnknown || riid==IID_IClassFactory) {*ppv=this; AddRef(); return S_OK;} else return E_NOINTERFACE;}
+	ULONG STDMETHODCALLTYPE AddRef() {InterlockedIncrement(&gref); return InterlockedIncrement(&ref);}
+	ULONG STDMETHODCALLTYPE Release() {int tmp = InterlockedDecrement(&ref); InterlockedDecrement(&gref); return tmp;}
+  
+	// IClassFactory...
+	HRESULT STDMETHODCALLTYPE LockServer(BOOL b) {if (b) InterlockedIncrement(&gref); else InterlockedDecrement(&gref); return S_OK;}
 	HRESULT STDMETHODCALLTYPE CreateInstance(LPUNKNOWN pUnkOuter, REFIID riid, LPVOID *ppvObj)
 	{
 		*ppvObj = NULL;
@@ -68,37 +36,59 @@ class MyClassFactory : public IClassFactory
 		bho->Release();
 		return hr;
 	}
-  // MyClassFactory...
-  MyClassFactory() : ref(0) {}
+  
+	// MyClassFactory...
+	MyClassFactory() : ref(0) {}
 };
 
 
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppvOut)
-{ static MyClassFactory factory; *ppvOut = NULL;
-  if (rclsid==BhoCLSID) {return factory.QueryInterface(riid,ppvOut);}
-  else return CLASS_E_CLASSNOTAVAILABLE;
+{
+	static MyClassFactory factory; *ppvOut = NULL;
+	if (rclsid==BhoCLSID) {return factory.QueryInterface(riid,ppvOut);}
+	else return CLASS_E_CLASSNOTAVAILABLE;
 }
 
 STDAPI DllCanUnloadNow(void)
-{ return (gref>0)?S_FALSE:S_OK;
+{
+	return (gref>0)?S_FALSE:S_OK;
+}
+
+tstring GetThisDllPath()
+{
+	TCHAR szBuff[MAX_PATH] = _T("");
+#ifdef _DEBUG
+	tstring strMod = _T("LwtBho_d.dll");
+#else
+	tstring strMod = _T("LwtBho.dll");
+#endif
+	HMODULE hMod = GetModuleHandle(strMod.c_str());
+	if (!hMod)
+		return _T("");
+	DWORD dwRet = GetModuleFileName(hMod, (LPWSTR)szBuff, sizeof(szBuff));
+	if (!dwRet || GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+		return _T("");
+	tstring strDllPath(szBuff);
+	return strDllPath;
 }
 
 HRESULT __stdcall DllRegisterServer(void)
 {
 	HKEY pKey;
 
+	tstring strDllPath = GetThisDllPath();
+	if (strDllPath.size() == 0)
+		return E_FAIL;
+
 	tstring t1 = _T("CLSID\\");
 	t1 += BhoCLSIDs;
 
-	tstring t2 = _T("LWT BHO");
+	tstring t2 = _T("Learning With Texts Extension");
 #ifdef _DEBUG
-	t2 += _T("_d");
-
-	tstring t4 = _T("C:\\Users\\Luis\\Documents\\Visual Studio 2012\\Projects\\dlltest\\Debug\\LwtBho_d.dll");
-#else
-	tstring t4 = _T("C:\\Users\\Luis\\Documents\\Visual Studio 2012\\Projects\\dlltest\\Release\\LwtBho.dll");
+	t2 += _T(" (Debug)");
 #endif
-	tstring t3 = _T("clsid\\");
+
+	tstring t3 = _T("CLSID\\");
 	t3 += BhoCLSIDs;
 	t3 += _T("\\InprocServer32");
 
@@ -112,15 +102,13 @@ HRESULT __stdcall DllRegisterServer(void)
 		FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, (DWORD)l, NULL, msg, 499, NULL);
 		mb(msg, _T("123Caption"));
 	}
-	l = RegSetValueEx(pKey, NULL, NULL, REG_SZ, (BYTE*)t2.c_str(), 16);
+	l = RegSetValueEx(pKey, NULL, NULL, REG_SZ, (BYTE*)t2.c_str(), t2.length()*sizeof(TCHAR)+2);
 	if (l != ERROR_SUCCESS)
 	{
 		TCHAR msg[500];
 		FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, (DWORD)l, NULL, msg, 499, NULL);
 		mb(msg, _T("124Caption"));
 	}
-
-    //GetModuleFileName(NULL, (LPWSTR)szBuff, sizeof(szBuff));
 
 	l = RegCreateKeyEx(HKEY_CLASSES_ROOT, t3.c_str(), NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &pKey, NULL);
 	if (l != ERROR_SUCCESS)
@@ -129,7 +117,8 @@ HRESULT __stdcall DllRegisterServer(void)
 		FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, (DWORD)l, NULL, msg, 499, NULL);
 		MessageBox(NULL, msg, _T("123Caption"), MB_OK);
 	}
-	l = RegSetValueEx(pKey, NULL, NULL, REG_SZ, (BYTE*)t4.c_str(), 160);
+
+	l = RegSetValueEx(pKey, NULL, NULL, REG_SZ, (BYTE*)strDllPath.c_str(), strDllPath.length()*sizeof(TCHAR)+2);
 	if (l != ERROR_SUCCESS)
 	{
 		TCHAR msg[500];
@@ -155,7 +144,7 @@ HRESULT __stdcall DllUnregisterServer()
 	tstring t1 = _T("CLSID\\");
 	t1 += BhoCLSIDs;
 
-	tstring t3 = _T("clsid\\");
+	tstring t3 = _T("CLSID\\");
 	t3 += BhoCLSIDs;
 	t3 += _T("\\InprocServer32");
 
