@@ -1,7 +1,8 @@
 Debug/LwtBho*
 Release/LwtBho*
 LwtBho.sdf
-LwtBho*suo
+LwtBho.suo
 LwtBho.opensdf
 LwtBho/Debug/
 LwtBho/Release/
+LwtBho/LwtBho.vcxproj.user
