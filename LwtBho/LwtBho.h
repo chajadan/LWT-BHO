@@ -280,15 +280,16 @@ public:
 		_bstr_t bstrHowEndToStart(L"EndToStart");
 		IHTMLElement* pParent = nullptr;
 		long lVal;
-
+		
 		wstring out;
-		out.append(L"<sup><span class=\"lwtStat");
-		out += wNewStatus;
-		out.append(L"\" lwtTerm=\"");
-		out.append(wTerm);
-		out.append(L"\">");
-		out += to_wstring(uCount);
-		out.append(L"</span></sup>");
+		unordered_map<wstring,TermRecord>::const_iterator it = cache.cfind(wTerm);
+		assert(it != cache.end());
+
+		IHTMLElement* pBody = chaj::DOM::GetBodyAsElementFromDoc(pDoc);
+		assert(pBody);
+		AppendTermRecordDiv(pBody, wTerm, it->second);
+		pBody->Release();
+		AppendMWSpan(out, wTerm, &(it->second), to_wstring(uCount));
 
 		_bstr_t bInsert(out.c_str());
 
@@ -1471,13 +1472,22 @@ public:
 
 	void UpdatePageMWList(const wstring& wMWTerm)
 	{
-		int pos = -1; //offset to jive with do loop
-		do
+		if (bWithSpaces)
 		{
-			++pos;
-			pos = wMWTerm.find(L" ", pos);
-			usetPageMWList.insert(wstring(wMWTerm, 0, pos));
-		} while (pos != wstring::npos);
+			int pos = -1; //offset to jive with do loop
+
+			do
+			{
+				++pos;
+				pos = wMWTerm.find(L" ", pos);
+				usetPageMWList.insert(wstring(wMWTerm, 0, pos));
+			} while (pos != wstring::npos);
+		}
+		else
+		{
+			for (int i = 1; i <= wMWTerm.size(); ++i)
+				usetPageMWList.insert(wstring(wMWTerm, 0, i));
+		}
 	}
 
 	// GetUncacedSubset expects candidate words to be in lowercase already
@@ -1942,6 +1952,53 @@ public:
 		wBody = to_wstring(bstrBodyContent.GetBSTR());
 		TRACE(L"%s", L"Leaving GetBodyContent\n");
 	}
+	void PSTS_WordLevel_spaceless(TokenStruct& tokens, const wstring& in)
+	{
+		int pos1 = 0, pos2 = 0;
+		Token_Sentence ts(true);
+
+		// pattern: (?:(?:~-~#~-~)*[aWordChar])(?:~-~#~-~|[aWordChar])*
+		// regex pattern regPtn ensures that it returns a true word (contains at least one lwt defined word character)
+		// regPtns also ensures that if ~ is considered a valid wordChar, we won't end up at - and choke on a bookmark tag,
+		// i.e. it eats whole bookmarks first at each comparison point, and it why the second appearance of [aWordChar]
+		// is not [aWordChar]+
+		wstring regPtn = L"[";
+		regPtn += WordChars;
+		regPtn.append(L"]");
+
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wregex_iterator regit(in.begin(), in.end(), wrgx);
+		wregex_iterator rend;
+		int i = tokens.size();
+
+		while (regit != rend)
+		{
+			wstring wWord = regit->str();
+			assert(pos1 != wstring::npos && pos1 >= 0 && pos1 < in.size());
+			pos2 = in.find(wWord, pos1);
+			assert(pos2 != wstring::npos); // regex pattern just found should be found again
+			if (pos2 != pos1) // non-word data found in sentence
+				ts.push_back(wstring(in, pos1, pos2-pos1), false);
+			pos1 = pos2 + wWord.size();
+			
+			ts.push_back(wWord);
+
+			++regit;
+		}
+		if (pos1 == 0) // only non-digest data in this sentence
+		{
+			ts.push_back(in, false);
+			tokens.push_back(ts);
+		}
+		else
+		{
+			if (pos1 < in.size()) // we have data left in the sentence we received that contains no words
+				ts.push_back(wstring(in, pos1, in.size()-pos1), false);
+
+			tokens.push_back(ts);
+		}
+
+	}
 	void PSTS_WordLevel(TokenStruct& tokens, const wstring& in)
 	{
 		int pos1 = 0, pos2 = 0;
@@ -1952,19 +2009,29 @@ public:
 		// regPtns also ensures that if ~ is considered a valid wordChar, we won't end up at - and choke on a bookmark tag,
 		// i.e. it eats whole bookmarks first at each comparison point, and it why the second appearance of [aWordChar]
 		// is not [aWordChar]+
-		wstring regPtn = L"(?:(?:";
-		regPtn += wHiddenChunkBookmark;
-		regPtn.append(L"[0-9]+");
-		regPtn += wHiddenChunkBookmark;
-		regPtn.append(L")*[");
-		regPtn += WordChars;
-		regPtn.append(L"])(?:");
-		regPtn += wHiddenChunkBookmark;
-		regPtn.append(L"[0-9]+");
-		regPtn += wHiddenChunkBookmark;
-		regPtn.append(L"|[");
-		regPtn += WordChars;
-		regPtn.append(L"])*");
+		wstring regPtn;
+		if (bWithSpaces)
+		{
+			regPtn.append(L"(?:(?:");
+			regPtn += wHiddenChunkBookmark;
+			regPtn.append(L"[0-9]+");
+			regPtn += wHiddenChunkBookmark;
+			regPtn.append(L")*[");
+			regPtn += WordChars;
+			regPtn.append(L"])(?:");
+			regPtn += wHiddenChunkBookmark;
+			regPtn.append(L"[0-9]+");
+			regPtn += wHiddenChunkBookmark;
+			regPtn.append(L"|[");
+			regPtn += WordChars;
+			regPtn.append(L"])*");
+		}
+		else
+		{
+			regPtn.append(L"[");
+			regPtn += WordChars;
+			regPtn.append(L"]");
+		}
 
 		//wstring sentLC = wstring_tolower(in);	
 		wregex wrgx(regPtn, regex_constants::icase | regex_constants::ECMAScript);
@@ -1984,7 +2051,13 @@ public:
 				ts.push_back(wstring(in, pos1, pos2-pos1), false);
 			pos1 = pos2 + wWord.size();
 			
-			ts.push_back(wWord);
+			if (bWithSpaces)
+				ts.push_back(wWord);
+			else
+			{
+				for (int i = 0; i < wWord.size(); ++i)
+					ts.push_back(wstring(wWord, i, 1));
+			}
 
 			++regit;
 		}
@@ -2256,8 +2329,6 @@ public:
 		out.append(wTermCanonical);
 		out.append(L"\"");
 
-		//out.append(L" onmouseover=\"lwtcheckinner();\"");
-		//out.append(L" onmouseover=\"alert('inner tag javascript works!');\"");
 		out.append(L" onmouseover=\"lwtmover('lwt");
 		out.append(to_wstring(pRec->uIdent));
 		out.append(L"', event, this);\" onmouseout=\"lwtmout(event);\"");
@@ -2536,7 +2607,7 @@ L"	{"
 L"		inlineTop -= 2;"
 L"	}"
 L""
-
+L""
 L"	statbox.style.left = totalLeftOffset(posElem) + 'px';"
 L"	document.getElementById('lwtTermTrans').style.width = posElem.offsetWidth + 'px';"
 L"	document.getElementById('lwtTermTrans2').style.width = posElem.offsetWidth + 'px';"
@@ -2549,7 +2620,7 @@ L"		statbox.scrollIntoView(false);"
 L"}"
 L""
 L"function traverseDomTree_NextNodeByTagName(elem, aTagName)"
-L"{	"
+L"{"
 L"	if (elem.hasChildNodes() == true)"
 L"	{"
 L"		if (elem.firstChild.tagName == aTagName)"
@@ -2568,7 +2639,10 @@ L"			if (elem == null)"
 L"				return null;"
 L"		}"
 L""
-L"		return traverseDomTree_NextNodeByTagName(elem.parentNode.nextSibling, aTagName);"
+L"		if (elem.parentNode.nextSibling.tagName == aTagName)"
+L"			return elem.parentNode.nextSibling;"
+L"		else"
+L"			return traverseDomTree_NextNodeByTagName(elem.parentNode.nextSibling, aTagName);"
 L"	}"
 L""
 L"	if (possNextElem.tagName == aTagName)"
@@ -2599,34 +2673,34 @@ L"		var lastterm = document.getElementById('lwtlasthovered');"
 L"		if (lastterm == null) {alert('could not locate lasthovered field');}"
 L"		lastterm.setAttribute('lwtterm', newTerm);"
 L"		lastterm.setAttribute('lwtstat', '0');"
+L""
+L"		switch(newStatus)"
+L"		{"
+L"			case 49:"
+L"				document.getElementById('lwtsetstat1').click();"
+L"				break;"
+L"			case 50:"
+L"				document.getElementById('lwtsetstat2').click();"
+L"				break;"
+L"			case 51:"
+L"				document.getElementById('lwtsetstat3').click();"
+L"				break;"
+L"			case 52:"
+L"				document.getElementById('lwtsetstat4').click();"
+L"				break;"
+L"			case 53:"
+L"				document.getElementById('lwtsetstat5').click();"
+L"				break;"
+L"			case 87:"
+L"				document.getElementById('lwtsetstat99').click();"
+L"				break;"
+L"			case 73:"
+L"				document.getElementById('lwtsetstat98').click();"
+L"				break;"
+L"		}"
 L"	}"
 L"	else"
 L"		alert('Not a valid composite term selection.');"
-L""
-L"	switch(newStatus)"
-L"	{"
-L"		case 49:"
-L"			document.getElementById('lwtsetstat1').click();"
-L"			break;"
-L"		case 50:"
-L"			document.getElementById('lwtsetstat2').click();"
-L"			break;"
-L"		case 51:"
-L"			document.getElementById('lwtsetstat3').click();"
-L"			break;"
-L"		case 52:"
-L"			document.getElementById('lwtsetstat4').click();"
-L"			break;"
-L"		case 53:"
-L"			document.getElementById('lwtsetstat5').click();"
-L"			break;"
-L"		case 87:"
-L"			document.getElementById('lwtsetstat99').click();"
-L"			break;"
-L"		case 73:"
-L"			document.getElementById('lwtsetstat98').click();"
-L"			break;"
-L"	}"
 L"}"
 L""
 L"function getChosenMWTerm(elemLastPart)"
@@ -2657,6 +2731,7 @@ L"			if (bWithSpaces == true)"
 L"				chosenMWTerm += ' ';"
 L"			"
 L"			chosenMWTerm += curTerm;"
+L"			alert(chosenMWTerm);"
 L""
 L"			if (elem == elemLastPart)"
 L"				return chosenMWTerm;"
@@ -3123,7 +3198,6 @@ L"}"
 		GetTokensCanonical(tknCanonical, tknSansBookmarks);
 
 		UpdateCaches(tknCanonical);
-
 		ReconstructDoc(tokens, tknSansBookmarks, tknCanonical, pRange, wstrText, wstrHTMLText, pDoc, pBody);	
 
 #ifdef _DEBUG
@@ -3785,7 +3859,7 @@ L"}"
 	}
 	bool IsMultiwordTerm(const wstring& wTerm)
 	{
-		if (bWithSpaces == false && wTerm.size() > 0)
+		if (bWithSpaces == false && wTerm.size() > 1)
 			return true;
 		if (bWithSpaces == true && wTerm.find(L" ") != wstring::npos)
 			return true;

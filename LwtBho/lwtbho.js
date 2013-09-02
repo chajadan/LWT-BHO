@@ -262,7 +262,7 @@ function lwtshowinlinestat(e, curTerm, origin)
 }
 
 function traverseDomTree_NextNodeByTagName(elem, aTagName)
-{	
+{
 	if (elem.hasChildNodes() == true)
 	{
 		if (elem.firstChild.tagName == aTagName)
@@ -281,7 +281,10 @@ function traverseDomTree_NextNodeByTagName(elem, aTagName)
 				return null;
 		}
 
-		return traverseDomTree_NextNodeByTagName(elem.parentNode.nextSibling, aTagName);
+		if (elem.parentNode.nextSibling.tagName == aTagName)
+			return elem.parentNode.nextSibling;
+		else
+			return traverseDomTree_NextNodeByTagName(elem.parentNode.nextSibling, aTagName);
 	}
 
 	if (possNextElem.tagName == aTagName)
@@ -312,34 +315,34 @@ function captureMW(newStatus)
 		if (lastterm == null) {alert('could not locate lasthovered field');}
 		lastterm.setAttribute('lwtterm', newTerm);
 		lastterm.setAttribute('lwtstat', '0');
+
+		switch(newStatus)
+		{
+			case 49:
+				document.getElementById('lwtsetstat1').click();
+				break;
+			case 50:
+				document.getElementById('lwtsetstat2').click();
+				break;
+			case 51:
+				document.getElementById('lwtsetstat3').click();
+				break;
+			case 52:
+				document.getElementById('lwtsetstat4').click();
+				break;
+			case 53:
+				document.getElementById('lwtsetstat5').click();
+				break;
+			case 87:
+				document.getElementById('lwtsetstat99').click();
+				break;
+			case 73:
+				document.getElementById('lwtsetstat98').click();
+				break;
+		}
 	}
 	else
 		alert('Not a valid composite term selection.');
-
-	switch(newStatus)
-	{
-		case 49:
-			document.getElementById('lwtsetstat1').click();
-			break;
-		case 50:
-			document.getElementById('lwtsetstat2').click();
-			break;
-		case 51:
-			document.getElementById('lwtsetstat3').click();
-			break;
-		case 52:
-			document.getElementById('lwtsetstat4').click();
-			break;
-		case 53:
-			document.getElementById('lwtsetstat5').click();
-			break;
-		case 87:
-			document.getElementById('lwtsetstat99').click();
-			break;
-		case 73:
-			document.getElementById('lwtsetstat98').click();
-			break;
-	}
 }
 
 function getChosenMWTerm(elemLastPart)
@@ -370,6 +373,7 @@ function getChosenMWTerm(elemLastPart)
 				chosenMWTerm += ' ';
 			
 			chosenMWTerm += curTerm;
+			alert(chosenMWTerm);
 
 			if (elem == elemLastPart)
 				return chosenMWTerm;
