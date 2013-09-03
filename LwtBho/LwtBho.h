@@ -1183,22 +1183,20 @@ public:
 		PopulateChunks
 		Exit Condition: no empty string chunks, but 0 chunks is fine
 	*/
-	void PopulateChunks(vector<wstring>& chunks, wstring& wFullBody)
+	void SplitChunksByIframe(vector<wstring>& chunks, wstring& wBodyPart)
 	{
-		TRACE(L"%s", L"Calling PopulateChunks\n");
-				
-		if (wFullBody.find(L"iframe") == wstring::npos)
-			return SplitChunksByScript(chunks, wFullBody);
+		if (wBodyPart.find(L"iframe") == wstring::npos)
+			return SplitChunksByScript(chunks, wBodyPart);
 
 		int pos1 = 0, pos2 = 0;
 		bool bOpenScriptContext = false; // have seen open <script> but not yet </script>
 
 		wstring wrgxPtn1 = L"< */? *iframe.*?>";
 		wregex wrgx1(wrgxPtn1, regex_constants::icase | regex_constants::optimize | regex_constants::ECMAScript);
-		wregex_iterator regScripts(wFullBody.begin(), wFullBody.end(), wrgx1);
+		wregex_iterator regScripts(wBodyPart.begin(), wBodyPart.end(), wrgx1);
 
 		if (regScripts == rend) // a script-tagless page
-			return SplitChunksByScript(chunks, wFullBody);
+			return SplitChunksByScript(chunks, wBodyPart);
 
 		int nEnd;
 
@@ -1211,17 +1209,17 @@ public:
 					regScripts++;
 					continue;
 				}
-			pos2 = wFullBody.find(wScript, pos1);
-			nEnd = FindProperCloseTagPos(wFullBody, pos2);
+			pos2 = wBodyPart.find(wScript, pos1);
+			nEnd = FindProperCloseTagPos(wBodyPart, pos2);
 			if (nEnd-pos2+1 != wScript.size())
-				wScript = wstring(wFullBody, pos2, nEnd-pos2+1);
+				wScript = wstring(wBodyPart, pos2, nEnd-pos2+1);
 
 			if (pos1 != pos2) // some content prior to the found script tag
 			{
 				if (bOpenScriptContext == true)
-					chunks.push_back(wstring(wFullBody, pos1, pos2 - pos1));
+					chunks.push_back(wstring(wBodyPart, pos1, pos2 - pos1));
 				else // this is an open script tag we found, what precedes is not javascript
-					SplitChunksByScript(chunks, wstring(wFullBody, pos1, pos2 - pos1));
+					SplitChunksByScript(chunks, wstring(wBodyPart, pos1, pos2 - pos1));
 			}
 			
 			chunks.push_back(wScript);
@@ -1232,9 +1230,37 @@ public:
 			if (bOpenScriptContext && TagIsSelfClosed(wScript))
 				bOpenScriptContext = !bOpenScriptContext;
 		}
-		if (pos1 < wFullBody.size())
-			SplitChunksByScript(chunks, wstring(wFullBody, pos1, wFullBody.size()-pos1));
+		if (pos1 < wBodyPart.size())
+			SplitChunksByScript(chunks, wstring(wBodyPart, pos1, wBodyPart.size()-pos1));
+	}
+	void SplitChunksByComment(vector<wstring>& chunks, wstring& wBodyPart)
+	{
+		// this code does not support html that contains elements resembling comments like:
+		// <input type="text" value="<!--this will in fact show to user correctly: not a comment-->" />
 
+		if (wBodyPart.find(L"<!--") == wstring::npos)
+			return SplitChunksByIframe(chunks, wBodyPart);
+
+		int pos1 = 0, pos2 = wBodyPart.find(L"<!--", pos1);
+
+		do
+		{
+			if (pos2 != pos1)
+				SplitChunksByIframe(chunks, wstring(wBodyPart, pos1, pos2 - pos1));
+
+			pos1 = wBodyPart.find(L"-->", pos2) + 3;
+			chunks.push_back(wstring(wBodyPart, pos2, pos1 - pos2));
+
+			pos2 = wBodyPart.find(L"<!--", pos1);
+
+		} while (pos2 != wstring::npos);
+
+		SplitChunksByIframe(chunks, wstring(wBodyPart, pos1));
+	}
+	void PopulateChunks(vector<wstring>& chunks, wstring& wFullBody)
+	{
+		TRACE(L"%s", L"Calling PopulateChunks\n");
+		SplitChunksByComment(chunks, wFullBody);
 		TRACE(L"%s", L"Leaving PopulateChunks\n");
 	}
 
