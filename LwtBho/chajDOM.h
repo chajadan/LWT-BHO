@@ -29,7 +29,14 @@ namespace chaj
 		IDOMNodeIterator* GetNodeIteratorWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* pFilter, long lShow = SHOW_ALL);
 
 		HRESULT AppendStylesToDoc(const std::wstring& styles, IHTMLDocument2* pDoc);
+		HRESULT AppendHTMLAfterBegin(const std::wstring& toAppend, IHTMLElement* pElement);
+		HRESULT AppendHTMLBeforeBegin(const std::wstring& toAppend, IHTMLElement* pElement);
 		HRESULT AppendHTMLBeforeEnd(const std::wstring& toAppend, IHTMLElement* pElement);
+		HRESULT AppendHTMLAdjacent(const std::wstring& wWhere, const std::wstring& toAppend, IHTMLElement* pElement);
+
+		HRESULT TxtRange_CollapseToEnd(IHTMLTxtRange* pRange);
+		HRESULT TxtRange_RevertEnd(IHTMLTxtRange* pRange);
+		HRESULT TxtRange_MoveStartByChars(IHTMLTxtRange* pRange, long lngChars);
 
 		inline std::wstring HTMLTxtRange_get_text(IHTMLTxtRange* pRange)
 		{

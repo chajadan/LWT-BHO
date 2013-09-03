@@ -1,3 +1,10 @@
+function lwtSetup()
+{
+	document.getElementById('lwtIntroDiv').style.height = document.getElementById('lwtterminfo').offsetHeight + 'px';
+	window.onscroll = moveInfoOnScroll;
+	document.attachEvent('onkeydown', lwtkeypress);
+}
+
 function totalLeftOffset(element)
 {
 	var amount = 0;
@@ -39,6 +46,7 @@ function setSelection(elem, lastterm, curTerm)
 	lastterm.setAttribute('lwtcursel', curTerm);
 	elem.className = elem.className + ' lwtSel';
 }
+
 function getSelection()
 {
 	var elem = document.getElementById('lwtcursel');
@@ -122,16 +130,11 @@ function CloseOpenDialogs()
 
 function lwtkeypress()
 {
-	if (document.getElementById('lwtlasthovered').getAttribute('lwtcursel') == '')
-	{
+	if (document.getElementById('lwtlasthovered').getAttribute('lwtcursel') == '' || window.mwTermBegin != null)
 		return;
-	}
 	var e = window.event;
 	if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey)
-	{
 		return;
-		alert('in lwtkeypress return!');
-	}
 	switch(e.keyCode)
 	{
 		case 49:
@@ -177,16 +180,19 @@ function ExtrapLink(elem, linkForm, curTerm)
 	else if (linkForm.indexOf('###') >= 0)
 	{
 		extrap = linkForm.replace('###', curTerm);
-		elem.setAttribute('target', '_blank');
+		elem.setAttribute('target', 'lwtiframe');
 	}
 	elem.setAttribute('href', extrap);
 }
+
+function moveInfoOnScroll(){document.getElementById('lwtterminfo').style.top = window.pageYOffset + 'px';}
 
 function lwtmover(whichid, e, origin)
 {
 	removeSelection();
 	var divRec = document.getElementById(whichid);
-	if (divRec == null) {alert('could not locate divRec');}
+	if (divRec == null) {alert('could not locate term record');return;}
+	window.curDivRec = divRec;
 	var curTerm = divRec.getAttribute('lwtterm');
 	var lastterm = document.getElementById('lwtlasthovered');
 	if (lastterm == null) {alert('could not loccated lasthovered field');}
@@ -195,13 +201,13 @@ function lwtmover(whichid, e, origin)
 	setSelection(origin, lastterm, curTerm);
 	fixPageXY(e);
 	lwtshowinlinestat(e, curTerm, origin);
-	var infobox = document.getElementById('lwtinfobox');
-	if (infobox == null) {alert('could not locate infobox to render popup');}
-	infobox.style.left = (e.pageX + 10) + 'px';
-	infobox.style.top = e.pageY + 'px';
-	document.getElementById('lwtinfoboxterm').innerText = curTerm;
-	document.getElementById('lwtinfoboxtrans').innerText = divRec.getAttribute('lwttrans');
-	document.getElementById('lwtinfoboxrom').innerText = divRec.getAttribute('lwtrom');
+}
+
+function lwtshowinfo()
+{
+	document.getElementById('lwtshowtrans').textContent = window.curDivRec.getAttribute('lwttrans');
+	document.getElementById('lwtshowrom').textContent = window.curDivRec.getAttribute('lwtrom');
+	document.getElementById('lwtcurinfoterm').setAttribute('lwtterm', window.curDivRec.getAttribute('lwtterm'));
 }
 
 function lwtshowinlinestat(e, curTerm, origin)
@@ -210,14 +216,7 @@ function lwtshowinlinestat(e, curTerm, origin)
 	var curStat = '';
 
 	if (window.mwTermBegin != null)
-	{
 		statbox = document.getElementById('lwtInlineMWEndPopup');
-		if (window.keydownEventAttached == true)
-		{
-			document.detachEvent('onkeydown', lwtkeypress);
-			window.keydownEventAttached = false;
-		}
-	}
 	else
 	{
 		statbox = document.getElementById('lwtinlinestat');
@@ -225,11 +224,6 @@ function lwtshowinlinestat(e, curTerm, origin)
 		ExtrapLink(document.getElementById('lwtextrapdict1'), document.getElementById('lwtdict1').getAttribute('src'), curTerm);
 		ExtrapLink(document.getElementById('lwtextrapdict2'), document.getElementById('lwtdict2').getAttribute('src'), curTerm);
 		ExtrapLink(document.getElementById('lwtextrapgoogletrans'), document.getElementById('lwtgoogletrans').getAttribute('src'), curTerm);
-		if (window.keydownEventAttached != true)
-		{
-			document.attachEvent('onkeydown', lwtkeypress);
-			window.keydownEventAttached = true;
-		}
 	}
 
 	if (statbox == null)
@@ -250,9 +244,12 @@ function lwtshowinlinestat(e, curTerm, origin)
 	}
 
 
-	statbox.style.left = totalLeftOffset(posElem) + 'px';
-	document.getElementById('lwtTermTrans').style.width = posElem.offsetWidth + 'px';
-	document.getElementById('lwtTermTrans2').style.width = posElem.offsetWidth + 'px';
+	var tlo = totalLeftOffset(posElem);window.status = window.innerWidth + '';
+	if (tlo + statbox.offsetWidth > window.innerWidth)
+		tlo = tlo + posElem.offsetWidth - 81;
+	statbox.style.left = tlo + 'px';
+	document.getElementById('lwtTermTrans').style.height = posElem.offsetHeight + 'px';
+	document.getElementById('lwtTermTrans2').style.height = posElem.offsetHeight + 'px';
 	statbox.style.top = inlineTop + 'px';
 
 	var inlineBottom = inlineTop + statbox.offsetHeight;
@@ -373,7 +370,6 @@ function getChosenMWTerm(elemLastPart)
 				chosenMWTerm += ' ';
 			
 			chosenMWTerm += curTerm;
-			alert(chosenMWTerm);
 
 			if (elem == elemLastPart)
 				return chosenMWTerm;

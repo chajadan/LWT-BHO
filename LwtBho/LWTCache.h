@@ -23,6 +23,7 @@ public:
 	std::unordered_map<std::wstring,TermRecord>::iterator find(const std::wstring& entry) {return _cache.find(entry);}
 	std::unordered_map<std::wstring,TermRecord>::const_iterator cfind(const std::wstring& entry) {return _cache.find(entry);}
 	std::unordered_map<std::wstring,TermRecord>::iterator end() {return _cache.end();}
+	std::unordered_map<std::wstring,TermRecord>::const_iterator cend() {return _cache.cend();}
 	void insert(std::unordered_map<std::wstring,TermRecord>::value_type newEntry)
 	{
 		EnterCriticalSection(&CS_AddCacheEntry);

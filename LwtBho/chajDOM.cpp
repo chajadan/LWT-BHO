@@ -172,9 +172,21 @@ HRESULT chaj::DOM::AppendStylesToDoc(const std::wstring& styles, IHTMLDocument2*
 	
 	return hr;
 }
+HRESULT chaj::DOM::AppendHTMLBeforeBegin(const std::wstring& toAppend, IHTMLElement* pElement)
+{
+	return chaj::DOM::AppendHTMLAdjacent(L"beforeBegin", toAppend, pElement);
+}
 HRESULT chaj::DOM::AppendHTMLBeforeEnd(const std::wstring& toAppend, IHTMLElement* pElement)
 {
-	BSTR bstrWhere = SysAllocString(L"beforeEnd"); // allow memory to auto deallocate on program end
+	return chaj::DOM::AppendHTMLAdjacent(L"beforeEnd", toAppend, pElement);
+}
+HRESULT chaj::DOM::AppendHTMLAfterBegin(const std::wstring& toAppend, IHTMLElement* pElement)
+{
+	return chaj::DOM::AppendHTMLAdjacent(L"afterBegin", toAppend, pElement);
+}
+HRESULT chaj::DOM::AppendHTMLAdjacent(const std::wstring& wWhere, const std::wstring& toAppend, IHTMLElement* pElement)
+{
+	BSTR bstrWhere = SysAllocString(wWhere.c_str());
 	BSTR bstrToAppend = SysAllocString(toAppend.c_str());
 	HRESULT hr = pElement->insertAdjacentHTML(bstrWhere, bstrToAppend);
 	SysFreeString(bstrToAppend);
@@ -269,4 +281,25 @@ IHTMLElement* chaj::DOM::GetHeadAsElementFromDoc(IHTMLDocument2* pDoc)
 	chaj::COM::SmartCOMRelease srDispHead(pDispHead);
 
 	return chaj::COM::GetAlternateInterface<IDispatch,IHTMLElement>(pDispHead);
+}
+HRESULT chaj::DOM::TxtRange_CollapseToEnd(IHTMLTxtRange* pRange)
+{
+	_bstr_t bstrHowEndToStart(L"StartToEnd");
+	HRESULT hr = pRange->setEndPoint(bstrHowEndToStart.GetBSTR(), pRange);
+	return hr;
+}
+HRESULT chaj::DOM::TxtRange_RevertEnd(IHTMLTxtRange* pRange)
+{
+	_bstr_t bstrUnit(L"textedit");
+	long lngActual;
+	HRESULT hr = pRange->moveEnd(bstrUnit.GetBSTR(), 1, &lngActual);
+	return hr;
+}
+HRESULT chaj::DOM::TxtRange_MoveStartByChars(IHTMLTxtRange* pRange, long lngChars)
+{
+	_bstr_t bstrUnit(L"character");
+	long lngActual;
+	HRESULT hr = pRange->moveStart(bstrUnit.GetBSTR(), lngChars, &lngActual);
+	return hr;
+
 }
