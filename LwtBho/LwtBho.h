@@ -302,6 +302,7 @@ public:
 		_bstr_t bInsert(out.c_str());
 
 		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
+		assert(pRange);
 
 		pRange->findText(bFind, 1000000, 0, &vBool);
 		
@@ -375,6 +376,7 @@ public:
 		AppendMWSpan(out, wTerm, &(it->second), to_wstring(uCount));
 
 		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
+		assert(pRange);
 
 		bool bContinueAfterBreak = false;
 		
@@ -564,6 +566,7 @@ public:
 		long lVal;
 
 		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
+		assert(pRange);
 
 		pRange->findText(bFind, 1000000, 0, &vBool);
 		
@@ -728,6 +731,7 @@ public:
 		_bstr_t bWordCount(uWordCount);
 
 		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
+		assert(pRange);
 
 		pRange->findText(bWord, 1000000, 2, &vBool);
 		
@@ -768,6 +772,7 @@ public:
 		wstring out;
 		IHTMLElement* pParent = nullptr;
 		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
+		assert(pRange);
 		_bstr_t bWord(wTerm.c_str());
 		VARIANT_BOOL vBool;
 		wstring wt = chaj::DOM::HTMLTxtRange_get_text(pRange);
@@ -1318,7 +1323,8 @@ public:
 		if (wcsncmp(chunks[nChunkIndex-1].c_str(), L"<script", 7) == 0 || \
 			wcsncmp(chunks[nChunkIndex-1].c_str(), L"<style", 6) == 0 || \
 			wcsncmp(chunks[nChunkIndex-1].c_str(), L"<iframe", 7) == 0 || \
-			wcsncmp(chunks[nChunkIndex-1].c_str(), L"<noframe", 8) == 0)
+			wcsncmp(chunks[nChunkIndex-1].c_str(), L"<noframe", 8) == 0 || \
+			wcsncmp(chunks[nChunkIndex-1].c_str(), L"<textarea", 9) == 0)
 			return false;
 			
 		return true;
@@ -3385,7 +3391,8 @@ public:
 		IHTMLElement* pBody2 = NULL;
 		wstring wsBodyContent2 = L"";
 		GetBodyContent(wsBodyContent2, pBody2, pDoc);
-		pBody2->Release();
+		if (pBody2)
+			pBody2->Release();
 #endif
 
 		pBody->Release();
