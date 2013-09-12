@@ -136,6 +136,7 @@ IHTMLBodyElement* chaj::DOM::GetBodyElementFromDoc(IHTMLDocument2* pDoc)
 	IHTMLBodyElement* res = nullptr;
 	IHTMLElement* pBody = GetBodyAsElementFromDoc(pDoc);
 	pBody->QueryInterface(IID_IHTMLBodyElement, reinterpret_cast<void**>(&res));
+	pBody->Release();
 	return res;
 }
 IHTMLElement* chaj::DOM::GetBodyAsElementFromDoc(IHTMLDocument2* pDoc)
@@ -147,9 +148,13 @@ IHTMLElement* chaj::DOM::GetBodyAsElementFromDoc(IHTMLDocument2* pDoc)
 
 IHTMLTxtRange* chaj::DOM::GetBodyTxtRangeFromDoc(IHTMLDocument2* pDoc)
 {
-	IHTMLBodyElement* pBodyElement = GetBodyElementFromDoc(pDoc);
 	IHTMLTxtRange* pTxtRange = nullptr;
-	pBodyElement->createTextRange(&pTxtRange);
+	IHTMLBodyElement* pBodyElement = GetBodyElementFromDoc(pDoc);
+	if (pBodyElement)
+	{
+		pBodyElement->createTextRange(&pTxtRange);
+		pBodyElement->Release();
+	}
 	return pTxtRange;
 }
 
@@ -285,8 +290,16 @@ IHTMLElement* chaj::DOM::GetHeadAsElementFromDoc(IHTMLDocument2* pDoc)
 HRESULT chaj::DOM::TxtRange_CollapseToEnd(IHTMLTxtRange* pRange)
 {
 	_bstr_t bstrHowEndToStart(L"StartToEnd");
-	HRESULT hr = pRange->setEndPoint(bstrHowEndToStart.GetBSTR(), pRange);
-	return hr;
+	return TextRange_SetEndPoint(bstrHowEndToStart, pRange, pRange);
+}
+HRESULT chaj::DOM::TxtRange_CollapseToBegin(IHTMLTxtRange* pRange)
+{
+	_bstr_t bstrHowEndToStart(L"EndToStart");
+	return TextRange_SetEndPoint(bstrHowEndToStart, pRange, pRange);
+}
+HRESULT chaj::DOM::TextRange_SetEndPoint(_bstr_t& how, IHTMLTxtRange* pRange, IHTMLTxtRange* pRefRange)
+{
+	return pRange->setEndPoint(how.GetBSTR(), pRefRange);
 }
 HRESULT chaj::DOM::TxtRange_RevertEnd(IHTMLTxtRange* pRange)
 {

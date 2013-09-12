@@ -34,25 +34,48 @@ namespace chaj
 		HRESULT AppendHTMLBeforeEnd(const std::wstring& toAppend, IHTMLElement* pElement);
 		HRESULT AppendHTMLAdjacent(const std::wstring& wWhere, const std::wstring& toAppend, IHTMLElement* pElement);
 
+		HRESULT TextRange_SetEndPoint(_bstr_t& how, IHTMLTxtRange* pRange, IHTMLTxtRange* pRefRange);
+		HRESULT TxtRange_CollapseToBegin(IHTMLTxtRange* pRange);
 		HRESULT TxtRange_CollapseToEnd(IHTMLTxtRange* pRange);
 		HRESULT TxtRange_RevertEnd(IHTMLTxtRange* pRange);
 		HRESULT TxtRange_MoveStartByChars(IHTMLTxtRange* pRange, long lngChars);
 
 		inline std::wstring HTMLTxtRange_get_text(IHTMLTxtRange* pRange)
 		{
-			BSTR bstrText;
-			pRange->get_text(&bstrText);
-			if (SysStringLen(bstrText) > 0)
+			std::wstring wstrText(L"");
+			
+			if (pRange)
 			{
-				std::wstring wstrText(bstrText);
-				SysFreeString(bstrText);
-				return wstrText;
+				BSTR bstrText = nullptr;
+				pRange->get_text(&bstrText);
+
+				if (bstrText)
+				{
+					wstrText += bstrText;
+					SysFreeString(bstrText);
+				}
 			}
-			else
+
+			return wstrText;
+		}
+
+		inline std::wstring HTMLTxtRange_htmlText(IHTMLTxtRange* pRange)
+		{
+			std::wstring retVal(L"");
+
+			if (pRange)
 			{
-				SysFreeString(bstrText);
-				return L"";
+				BSTR bstrHTMLText = nullptr;
+				pRange->get_htmlText(&bstrHTMLText);
+
+				if (bstrHTMLText)
+				{
+					retVal += bstrHTMLText;
+					SysFreeString(bstrHTMLText);
+				}
 			}
+
+			return retVal;
 		}
 
 		class DOMIteratorFilter: public IDispatch

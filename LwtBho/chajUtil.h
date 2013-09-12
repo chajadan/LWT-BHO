@@ -32,6 +32,50 @@ void PrintFormattedError(DWORD dwErr);
 
 namespace chaj
 {
+	namespace util
+	{
+		template<class T>
+		/*
+			CatchSentinel accepts a series of inputs and watches for a sentinel value, i.e. a trigger input.
+			The are two cases:
+				1) (The default case): the class notices when a particular value happens to be received
+					2) The class notices when the input is not the only input you expect
+			
+			The sentinel type requires an accessible copy constructor.
+
+			Typical usage example:
+
+			string s = "<some user input text>";
+			
+			CatchSentinel<bool> cs(true);
+			for (int i = 0; i < s.size(); ++i)
+				cs += (s[i] == '\');
+			
+			if (cs.Seen()) // we have encounter a backslash
+				...handle case
+		*/
+		class CatchSentinel
+		{
+		public:
+			CatchSentinel(T tSentinel, bool bCatchException = false): tSentinel(tSentinel), tLastException(tSentinel), bCatchException(bCatchException), bCaught(false){}
+			CatchSentinel& operator+=(T tEntry)
+			{ 
+				bool bTriggered = (tEntry == tSentinel) ^ bCatchException;
+				bCaught |= bTriggered;
+				if (bCatchException && bTriggered) tLastException = tEntry;
+				return *this;
+			}
+			// Seen() indicates whether the monitored event has occurred
+			bool Seen() {return bCaught;}
+			// LastException returns the seed value unless exceptions are being monitored and there was one
+			T LastException() {return bCatchException && !bCaught ? tSentinel : tLastException;}
+		private:
+			T tSentinel;
+			T tLastException;
+			bool bCatchException;
+			bool bCaught;
+		};
+	}
 	namespace str
 	{
 		std::wstring& wstring_tolower(std::wstring& in);

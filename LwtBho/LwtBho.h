@@ -2,7 +2,7 @@
 #define LwtBho_INCLUDED
 
 #include "LWTCache.h"
-#include "C:\\Users\\Luis\\Desktop\\charlie\\prog\\utilities\\resedit\\projects\\resource.h"
+#include "Resource/resource.h"
 #include "assert.h"
 #include "dbdriver.h"
 #include <Windows.h>
@@ -45,6 +45,7 @@ const INT_PTR CTRL_FORCE_PARSE = static_cast<INT_PTR>(101);
 const INT_PTR CTRL_CHANGE_LANG = static_cast<INT_PTR>(102);
 const int MWSpanAltroSize = 7;
 const wstring wstrNewline(L"&#13;&#10;");
+DISPID DISP_UPDATETERMINFO = 5;
 
 #define nHiddenChunkOpenBookmarkLen 3
 #define LWT_MAXWORDLEN 255
@@ -112,7 +113,7 @@ private:
 	};
 
 public:
-	LwtBho() : conn(), tConn(), tStmt()
+	LwtBho() : conn(), tConn(), tStmt(), cache(L"null")
 	{
 #ifdef _DEBUG
 		mb("Here's your chance to attach debugger...");
@@ -125,20 +126,24 @@ public:
 		pNI = NULL;
 		pTW = NULL;
 		pDispBrowser = NULL;
+		pCache = nullptr;
 
 		hBrowser = NULL;
 		dwCookie = NULL;
 		dwCookie2 = NULL;
 		bDocumentCompleted = false;
 		ref = 0;
-		LgID = "";
 		wLgID = L"";
-		tLgID = _T("");
 		WordChars = L"";
 		SentDelims = L"";
 		SentDelimExcepts = L"";
 		bWithSpaces = true;
 		bstrUrl = "";
+
+		LoadJavascriptFile();
+		assert(this->wJavascript.size());
+		LoadCssFile();
+		assert(this->wCss.size());
 
 		InitializeWregexes();
 
@@ -150,17 +155,6 @@ public:
 			mb(_T("Cannot connect to the Data Source"));
 			mb(tConn.last_error());
 			return;
-		}
-
-		try
-		{
-			SetCharsetNameOption* scno = new SetCharsetNameOption("utf8");
-			conn.set_option(scno);
-			conn.connect("learning-with-texts", "127.0.0.1", "root", "", 0);
-		}
-		catch(...)
-		{
-			MessageBox(NULL, _T("Lwt Bho unable to connect to MySQL server. Please make sure it is running. Make sure you can access Learning With Texts. If you continue to encounter this message, you can disable this Lwt Bho in your browser add-on options."), _T("60xhfdufio"), MB_OK);
 		}
 
 		if (!tStmt.execute_direct(tConn, _T("select StValue from settings where StKey = 'currentlanguage'")))
@@ -176,17 +170,31 @@ public:
 			tStmt.free_results();
 			return;
 		}
-		tLgID = tStmt.field(1).as_string();
-		wLgID = chaj::str::to_wstring(tLgID);
+		wLgID = tStmt.field(1).as_string();
 		tStmt.free_results();
-		OnLanguageChange();
+		OnLanguageChange(true, nullptr);
 	}
 	~LwtBho()
 	{
 		if (pFilter != NULL)
 			delete pFilter;
 	}
-
+	void LoadJavascriptFile()
+	{
+		HRSRC rc = ::FindResource(hInstance, MAKEINTRESOURCE(IDR_LWTJAVASCRIPT01),
+			MAKEINTRESOURCE(JAVASCRIPT));
+		HGLOBAL rcData = ::LoadResource(hInstance, rc);
+		DWORD size = ::SizeofResource(hInstance, rc);
+		wJavascript = to_wstring(static_cast<const char*>(::LockResource(rcData)));
+	}
+	void LoadCssFile()
+	{
+		HRSRC rc = ::FindResource(hInstance, MAKEINTRESOURCE(IDR_LWTCSS),
+			MAKEINTRESOURCE(CSS));
+		HGLOBAL rcData = ::LoadResource(hInstance, rc);
+		DWORD size = ::SizeofResource(hInstance, rc);
+		wCss = to_wstring(static_cast<const char*>(::LockResource(rcData)));
+	}
 	void test3()
 	{
 		//DBDriver* dbdriv = conn.driver();
@@ -202,7 +210,7 @@ public:
 		StoreQueryResult sqr = q.store();
 		wchar_t res[200] = L"";
 		//ToUCS2(res, 200, sqr[0][0]);
-		mb("the result!!");
+			mb("the result!!");
 		mb(res);
 	}
 	void DoError(const tstring& errCode, const tstring& errMsg)
@@ -279,7 +287,6 @@ public:
 		_bstr_t bFind(wTerm.c_str());
 		_bstr_t bstrChar(L"character");
 		_bstr_t bstrHowEndToStart(L"EndToStart");
-		IHTMLElement* pParent = nullptr;
 		long lVal;
 		
 		wstring out;
@@ -300,19 +307,15 @@ public:
 		
 		while (vBool == VARIANT_TRUE)
 		{
-			hr = pRange->setEndPoint(bstrHowEndToStart.GetBSTR(), pRange);
-			assert(SUCCEEDED(hr));
+			dhr(chaj::DOM::TxtRange_CollapseToBegin(pRange));
 
 			IHTMLElement* pSpan = nullptr;
-			hr = pRange->parentElement(&pSpan);
-			assert(SUCCEEDED(hr));
+			dhr(pRange->parentElement(&pSpan));
 
-			while (!chaj::DOM::GetAttributeValue(pSpan, L"lwtterm").size() && pSpan)
+			while (pSpan && !chaj::DOM::GetAttributeValue(pSpan, L"lwtterm").size())
 			{
 				IHTMLElement* pPar = nullptr;
-				hr = pSpan->get_parentElement(&pPar);
-				assert(SUCCEEDED(hr));
-
+				dhr(pSpan->get_parentElement(&pPar));
 				pSpan->Release();
 				pSpan = pPar;
 			}
@@ -320,10 +323,11 @@ public:
 			if (!pSpan)
 				return AddNewMWSpans2(wTerm, wNewStatus);
 
-			_bstr_t bWhere(L"beforeBegin");
-			hr = pSpan->insertAdjacentHTML(bWhere.GetBSTR(), bInsert.GetBSTR());
+			//_bstr_t bWhere(L"beforeBegin");
+			dhr(chaj::DOM::AppendHTMLBeforeBegin(out, pSpan));
+			//hr = pSpan->insertAdjacentHTML(bWhere.GetBSTR(), bInsert.GetBSTR());
 			//hr = pRange->pasteHTML(bInsert.GetBSTR());
-			assert(SUCCEEDED(hr));
+			//assert(SUCCEEDED(hr));
 
 			pRange->move(bstrChar, out.size() + wTerm.size() - 1, &lVal); // todo I'm not sure if this works well, or how it responds to the previous insertion in terms of txtrange cursor position, but I'm hoping, within bounds, that it's reasonable = hack
 			pRange->findText(bFind, 1000000, 0, &vBool);
@@ -350,7 +354,7 @@ public:
 		}
 		else
 		{
-			for (int i = 0; i < wTerm.size(); ++i)
+			for (wstring::size_type i = 0; i < wTerm.size(); ++i)
 				vParts.push_back(to_wstring(wTerm.c_str()[i]));
 		}
 
@@ -372,7 +376,6 @@ public:
 
 		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
 
-		BSTR bMWTermPart;
 		bool bContinueAfterBreak = false;
 		
 		do
@@ -389,7 +392,7 @@ public:
 
 			IHTMLElement* pStartElem = nullptr;
 
-			for (int i = 0; i < vParts.size(); ++i)
+			for (vector<wstring>::size_type i = 0; i < vParts.size(); ++i)
 			{
 				_bstr_t bMWTermPart(vParts[i].c_str());
 				pRange->findText(bMWTermPart.GetBSTR(), 0, 0, &vBool);
@@ -477,7 +480,7 @@ public:
 		}
 		else
 		{
-			for (int i = 0; i < wTerm.size(); ++i)
+			for (wstring::size_type i = 0; i < wTerm.size(); ++i)
 				vParts.push_back(to_wstring(wTerm.c_str()[i]));
 		}
 
@@ -501,7 +504,7 @@ public:
 					pBegin = pElement;
 					bool bAddHere = false;
 
-					for (int i = 1; i < vParts.size(); ++i)
+					for (vector<wstring>::size_type i = 1; i < vParts.size(); ++i)
 					{
 						pTW->nextNode(&pCur);
 						IHTMLElement* pElement2 = GetAlternateInterface<IDispatch,IHTMLElement>(pCur);
@@ -698,7 +701,7 @@ public:
 
 			unsigned int count = 1; // at least one word present
 		
-			for (int i = 0; i < wstrTerm.size(); ++i)
+			for (wstring::size_type i = 0; i < wstrTerm.size(); ++i)
 				if (wstrTerm[i] == L' ') // found a(nother) space
 					++count; // so additonal word
 
@@ -978,14 +981,24 @@ public:
 	//			return wstring(varAttValue.bstrVal);
 	//	}
 	//}
-	void OnLanguageChange()
+	void SendLwtCommand(const wstring& wCommand, IHTMLDocument2* pDoc)
 	{
-		if (LgID == "0")
+		IHTMLElement* pBhoCommand = chaj::DOM::GetElementFromId(L"lwtBhoCommand", pDoc);
+		assert(pBhoCommand);
+		chaj::DOM::SetAttributeValue(pBhoCommand, L"value", wCommand);
+		pBhoCommand->click();
+		pBhoCommand->Release();
+	}
+	void OnLanguageChange(bool bLoad, IHTMLDocument2* pDoc)
+	{
+		long lngLgID = wcstol(wLgID.c_str(), NULL, 10);
+
+		if (lngLgID == 0 || lngLgID == LONG_MAX || lngLgID == LONG_MIN)
 			return;
 		        
-		tstring tQuery = _T("select LgRegexpWordCharacters, LgRegexpSplitSentences, COALESCE(LgExceptionsSplitSentences, ''), LgSplitEachChar, COALESCE(LgDict1URI, ''), COALESCE(LgDict2URI, ''), COALESCE(LgGoogleTranslateURI, '') from languages where LgID = ");
-		tQuery += tLgID;
-		if (!DoExecuteDirect(_T("235ywiehf"), tQuery))
+		wstring wQuery = L"select LgRegexpWordCharacters, LgRegexpSplitSentences, COALESCE(LgExceptionsSplitSentences, ''), LgSplitEachChar, COALESCE(LgDict1URI, ''), COALESCE(LgDict2URI, ''), COALESCE(LgGoogleTranslateURI, '') from languages where LgID = ";
+		wQuery += wLgID;
+		if (!DoExecuteDirect(_T("235ywiehf"), wQuery))
 			return;
 
 		if (!tStmt.fetch_next())
@@ -1000,12 +1013,26 @@ public:
 			wstrDict2 = tStmt.field(6).as_string();
 			wstrGoogleTrans = tStmt.field(7).as_string();
 			RegexEscape(SentDelimExcepts);
+			unordered_map<wstring,LWTCache*>::const_iterator it = cacheMap.find(wLgID);
+			if (it != cacheMap.end())
+				cache = *(it->second);
+			else
+			{
+				pCache = new LWTCache(wLgID);
+				cacheMap.insert(pair<wstring,LWTCache*>(wLgID, pCache));
+				cache = *pCache;
+			}
+
+			if (!bLoad)
+			{
+				SendLwtCommand(L"reloadPage", pDoc);
+			}
 		}
 		tStmt.free_results();
 	}
 	wstring RegexEscape(const wstring& in)
 	{
-		return regex_replace(in, wregex(L"([$.?\^*+()])"), L"\\$1");
+		return regex_replace(in, wregex(L"([$.?\\^*+()])"), L"\\$1");
 	}
 	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv)
 	{
@@ -1018,6 +1045,21 @@ public:
 		else
 			return E_NOINTERFACE;
 		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 		AddRef();
 		return S_OK;
 	}
@@ -1031,6 +1073,7 @@ public:
 	}
 	HRESULT STDMETHODCALLTYPE GetIDsOfNames(REFIID riid, OLECHAR FAR* FAR* rgszNames, unsigned int cNames, LCID lcid, DISPID FAR* rgDispId)
 	{
+		BSTR B;
 		return NOERROR;
 	}
 
@@ -1054,14 +1097,14 @@ public:
 	int FindProperCloseTagPos(const wstring& in, int nOpenTagPos)
 	{
 		assert(in.find(L"<", nOpenTagPos) == nOpenTagPos);
-		int i = nOpenTagPos + 1;
+		wstring::size_type i = nOpenTagPos + 1;
 
 		do
 		{
 			wchar_t wCur = in[i];
 			if (wCur == '\"' || wCur == '\'')
 			{
-				int j = i + 1;
+				wstring::size_type j = i + 1;
 				do
 				{
 					wchar_t jCur = in[j];
@@ -1134,7 +1177,7 @@ public:
 		if (wBodyPart.find(L"script") == wstring::npos)
 			return TagNotTag(chunks, wBodyPart);
 
-		int pos1 = 0, pos2 = 0;
+		wstring::size_type pos1 = 0, pos2 = 0;
 		bool bOpenScriptContext = false; // have seen open <script> but not yet </script>
 
 		wstring wrgxPtn1 = L"< */? *script.*?>";
@@ -1188,7 +1231,7 @@ public:
 		if (wBodyPart.find(L"iframe") == wstring::npos)
 			return SplitChunksByScript(chunks, wBodyPart);
 
-		int pos1 = 0, pos2 = 0;
+		wstring::size_type pos1 = 0, pos2 = 0;
 		bool bOpenScriptContext = false; // have seen open <script> but not yet </script>
 
 		wstring wrgxPtn1 = L"< */? *iframe.*?>";
@@ -1233,27 +1276,22 @@ public:
 		if (pos1 < wBodyPart.size())
 			SplitChunksByScript(chunks, wstring(wBodyPart, pos1, wBodyPart.size()-pos1));
 	}
+
 	void SplitChunksByComment(vector<wstring>& chunks, wstring& wBodyPart)
 	{
 		// this code does not support html that contains elements resembling comments like:
 		// <input type="text" value="<!--this will in fact show to user correctly: not a comment-->" />
 
-		if (wBodyPart.find(L"<!--") == wstring::npos)
-			return SplitChunksByIframe(chunks, wBodyPart);
+		int pos1, pos2;
 
-		int pos1 = 0, pos2 = wBodyPart.find(L"<!--", pos1);
-
-		do
+		for (pos1 = 0, pos2 = wBodyPart.find(L"<!--", pos1); pos2 != wstring::npos; pos2 = wBodyPart.find(L"<!--", pos1))
 		{
 			if (pos2 != pos1)
 				SplitChunksByIframe(chunks, wstring(wBodyPart, pos1, pos2 - pos1));
 
 			pos1 = wBodyPart.find(L"-->", pos2) + 3;
 			chunks.push_back(wstring(wBodyPart, pos2, pos1 - pos2));
-
-			pos2 = wBodyPart.find(L"<!--", pos1);
-
-		} while (pos2 != wstring::npos);
+		}
 
 		SplitChunksByIframe(chunks, wstring(wBodyPart, pos1));
 	}
@@ -1303,7 +1341,7 @@ public:
 
 		bool bIsVisibleChunk; // must be properly set each loop iteration
 
-		for (int i = 0; i < chunks.size(); ++i)
+		for (vector<wstring>::size_type i = 0; i < chunks.size(); ++i)
 		{
 			bIsVisibleChunk = IsChunkVisible(chunks, i);
 
@@ -1653,7 +1691,7 @@ public:
 		}
 		else
 		{
-			for (int i = 1; i <= wMWTerm.size(); ++i)
+			for (wstring::size_type i = 1; i <= wMWTerm.size(); ++i)
 				usetPageMWList.insert(wstring(wMWTerm, 0, i));
 		}
 	}
@@ -1695,12 +1733,12 @@ public:
 	}
 	void ParseSentencesToMWTerms(list<wstring>& lstItems, const TokenStruct& tokens)
 	{
-		for (int i = 0; i < tokens.size(); ++i)
+		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
 		{
 			if (tokens[i].bDigested == false)
 				continue;
 
-			for (int j = 0; j < tokens[i].size(); ++j)
+			for (vector<Token_Word>::size_type j = 0; j < tokens[i].size(); ++j)
 			{
 				if (tokens[i].isWordDigested(j) == false)
 					continue;
@@ -1708,7 +1746,7 @@ public:
 				wstring vTerm;
 				int nSkipCount = 0;
 
-				for (int k = j; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
+				for (vector<Token_Word>::size_type k = j; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
 				{
 					if (tokens[i].isWordDigested(k) == false)
 					{
@@ -1812,7 +1850,7 @@ public:
 		vector<wstring> vWordsNoDups;
 		GetNonDuplicatesSubset(vWordsNoDups, vWords);
 
-		for (int i = 0; i < vWordsNoDups.size(); ++i)
+		for (vector<wstring>::size_type i = 0; i < vWordsNoDups.size(); ++i)
 		{
 			unordered_map<wstring,TermRecord>::iterator it = cache.find(vWordsNoDups[i]);
 			if (it == cache.end())
@@ -1885,12 +1923,12 @@ public:
 	}
 	void SentenceWordsToWordsMinusBookmarks(vector<wstring>& words, TokenStruct& tokens)
 	{
-		for (int i = 0; i < tokens.size(); ++i)
+		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
 		{
 			if (tokens[i].bDigested == false)
 				continue;
 
-			for (int j = 0; j < tokens[i].size(); ++j)
+			for (vector<Token_Word>::size_type j = 0; j < tokens[i].size(); ++j)
 			{
 				if (tokens[i].isWordDigested(j) == false)
 					continue;
@@ -1948,12 +1986,12 @@ public:
 
 		list<wstring>::iterator lend = lstCopy.end();
 		list<wstring>::iterator iter = lstCopy.begin();
-		for (int i = 0; i < lstCopy.size(); i += nAtATime)
+		for (list<wstring>::size_type i = 0; i < lstCopy.size(); i += nAtATime)
 		{
 			TRACE(L"Creating query #%i\n", i+1);
 			wstring wInList;
 
-			for (int j = i; j < lstCopy.size() && j < i + nAtATime; ++j)
+			for (list<wstring>::size_type j = i; j < lstCopy.size() && j < i + nAtATime; ++j)
 			{
 				wInList.append(L"'");
 				wInList.append(EscapeSQLQueryValue(*iter));
@@ -1973,7 +2011,7 @@ public:
 		}
 
 		TRACE(L"%i queries created\n", vQueries.size());
-		for (int i = 0; i < vQueries.size(); ++i)
+		for (vector<wstring>::size_type i = 0; i < vQueries.size(); ++i)
 		{
 			DoExecuteDirect(_T("1612isjdlfij"), vQueries[i]);
 			TRACE(L"Executed query #%i\n", i + 1);
@@ -1996,11 +2034,11 @@ public:
 	void GetUncachedTokens(list<wstring>& out, const TokenStruct& tokens)
 	{
 		TRACE(L"%s", L"Calling GetUncachedTokens\n");
-		for (int i = 0; i < tokens.size(); ++i)
+		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
 		{
 			if (tokens[i].bDigested)
 			{
-				for (int j = 0; j < tokens[i].size(); ++j)
+				for (vector<Token_Word>::size_type j = 0; j < tokens[i].size(); ++j)
 				{
 					if (tokens[i].isWordDigested(j))
 					{
@@ -2029,7 +2067,7 @@ public:
 	}
 	void test5(vector<wstring>& v)
 	{
-		for (int i = 0; i < v.size(); ++i)
+		for (vector<wstring>::size_type i = 0; i < v.size(); ++i)
 			mb(v[i]);
 	}
 	void EnsureRecordEntryForEachMWTerm(const TokenStruct& tknCanonical)
@@ -2123,7 +2161,7 @@ public:
 	}
 	void PSTS_WordLevel_spaceless(TokenStruct& tokens, const wstring& in)
 	{
-		int pos1 = 0, pos2 = 0;
+		wstring::size_type pos1 = 0, pos2 = 0;
 		Token_Sentence ts(true);
 
 		// pattern: (?:(?:~-~#~-~)*[aWordChar])(?:~-~#~-~|[aWordChar])*
@@ -2170,7 +2208,7 @@ public:
 	}
 	void PSTS_WordLevel(TokenStruct& tokens, const wstring& in)
 	{
-		int pos1 = 0, pos2 = 0;
+		wstring::size_type pos1 = 0, pos2 = 0;
 		Token_Sentence ts(true);
 
 		// pattern: (?:(?:~-~#~-~)*[aWordChar])(?:~-~#~-~|[aWordChar])*
@@ -2224,7 +2262,7 @@ public:
 				ts.push_back(wWord);
 			else
 			{
-				for (int i = 0; i < wWord.size(); ++i)
+				for (wstring::size_type i = 0; i < wWord.size(); ++i)
 					ts.push_back(wstring(wWord, i, 1));
 			}
 
@@ -2246,7 +2284,7 @@ public:
 	}
 	void PSTS_LwtSentenceLevel(TokenStruct& tokens, const wstring& in)
 	{
-		int pos1 = 0, pos2 = 0;
+		wstring::size_type pos1 = 0, pos2 = 0;
 
 		// pattern: (?:acceptable_sub_sequence|[^a_sentence_separactor_char])+
 		//wstring rgxPtn = L"(?:";
@@ -2294,7 +2332,7 @@ public:
 		wPat += wPTagBookmark;
 		wregex wrgx(wPat);
 		wregex_iterator regit(in.begin(), in.end(), wrgx), rend;
-		int pos1 = 0, pos2 = 0;
+		wstring::size_type pos1 = 0, pos2 = 0;
 		if (regit == rend)
 			return PSTS_LwtSentenceLevel(tokens, in);
 		while (regit != rend)
@@ -2386,7 +2424,7 @@ public:
 			{
 				nChunkNum = stoi(wChunkNum);
 			}
-			catch (const std::invalid_argument& ia)
+			catch (const std::invalid_argument&)
 			{
 				++regit;
 				continue;
@@ -2423,7 +2461,7 @@ public:
 			{
 				nChunkNum = stoi(wChunkNum);
 			}
-			catch (const std::invalid_argument& ia)
+			catch (const std::invalid_argument&)
 			{
 				++regit;
 				continue;
@@ -2510,455 +2548,460 @@ public:
 			//L"window.lwtgoogletrans = getElementById('lwtgoogletrans').getAttribute('src');"
 			//);
 		out.append(L"function lwtcheckinner() {alert('could call inserted javascript!');}");
-		out.append(
-L"function lwtSetup()"
-L"{"
-L"	document.getElementById('lwtIntroDiv').style.height = document.getElementById('lwtterminfo').offsetHeight + 'px';"
-L"	window.onscroll = moveInfoOnScroll;"
-L"	document.attachEvent('onkeydown', lwtkeypress);"
-L"}"
-L""
-L"function totalLeftOffset(element)"
-L"{"
-L"	var amount = 0;"
-L"	while (element != null)"
-L"	{"
-L"		amount += element.offsetLeft;"
-L"		element = element.offsetParent;"
-L"	}"
-L"	return amount;"
-L"}"
-L""
-L"function totalTopOffset(element)"
-L"{"
-L"	var amount = 0;"
-L"	while (element != null)"
-L"	{"
-L"		amount += element.offsetTop;"
-L"		element = element.offsetParent;"
-L"	}"
-L"	return amount;"
-L"}"
-L""
-L"function fixPageXY(e)"
-L"{"
-L"	if (e.pageX == null && e.clientX != null )"
-L"	{"
-L"		var html = document.documentElement;"
-L"		var body = document.body;"
-L"		e.pageX = e.clientX + (html.scrollLeft || body && body.scrollLeft || 0);"
-L"		e.pageX -= html.clientLeft || 0;"
-L"		e.pageY = e.clientY + (html.scrollTop || body && body.scrollTop || 0);"
-L"		e.pageY -= html.clientTop || 0;"
-L"	}"
-L"}"
-L""
-L"function setSelection(elem, lastterm, curTerm)"
-L"{"
-L"	elem.id = 'lwtcursel';"
-L"	lastterm.setAttribute('lwtcursel', curTerm);"
-L"	elem.className = elem.className + ' lwtSel';"
-L"}"
-L""
-L"function getSelection()"
-L"{"
-L"	var elem = document.getElementById('lwtcursel');"
-L"	if (elem === null)"
-L"		return '';"
-L"	return elem.getAttribute('lwtcursel');"
-L"}"
-L""
-L"function removeSelection()"
-L"{"
-L"	var elem = document.getElementById('lwtcursel');"
-L"	if (elem == null)"
-L"	{"
-L"		return;"
-L"	}"
-L"	elem.id = '';"
-L"	document.getElementById('lwtlasthovered').setAttribute('lwtcursel','');"
-L"	var curClass = elem.className;"
-L"	var lastSpace = curClass.lastIndexOf(' ');"
-L"	if (lastSpace >= 0)"
-L"	{"
-L"		var putClass = curClass.substr(0, lastSpace + 1);"
-L"		elem.className = putClass;"
-L"	}"
-L"}"
-L""
-L"function XOnElement(x, elem)"
-L"{"
-L"	if (x < totalLeftOffset(elem) || x >= totalLeftOffset(elem) + elem.offsetWidth)"
-L"	{"
-L"		return false;"
-L"	}"
-L"	return true;"
-L"}"
-L""
-L"function YOnElement(y, elem)"
-L"{"
-L"	if (y < totalTopOffset(elem) || y >= totalTopOffset(elem) + elem.offsetHeight)"
-L"	{"
-L"		return false;"
-L"	}"
-L"	return true;"
-L"}"
-L""
-L"function XYOnElement(x, y, elem)"
-L"{"
-L"	return (XOnElement(x, elem) && YOnElement(y, elem));"
-L"}"
-L""
-L"function lwtcontextexit()"
-L"{"
-L"	removeSelection();"
-L"	CloseOpenDialogs();"
-L"}"
-L""
-L"function lwtdivmout(e)"
-L"{"
-L"	fixPageXY(e);"
-L"	var statbox = window.curStatbox;"
-L"	var bVal = XYOnElement(e.pageX, e.pageY, statbox);"
-L"	if (bVal == false)"
-L"	{"
-L"		lwtmout(e);"
-L"	}"
-L"}"
-L""
-L"function lwtmout(e)"
-L"{"
-L"	fixPageXY(e);"
-L"	var statbox = window.curStatbox;"
-L"	if (!XYOnElement(e.pageX, e.pageY, statbox))"
-L"	{"
-L"		lwtcontextexit();"
-L"	}"
-L"}"
-L""
-L"function CloseOpenDialogs()"
-L"{"
-L"	window.curStatbox.style.display = 'none';"
-L"}"
-L""
-L"function lwtkeypress()"
-L"{"
-L"	if (document.getElementById('lwtlasthovered').getAttribute('lwtcursel') == '' || window.mwTermBegin != null)"
-L"		return;"
-L"	var e = window.event;"
-L"	if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey)"
-L"		return;"
-L"	switch(e.keyCode)"
-L"	{"
-L"		case 49:"
-L"			document.getElementById('lwtsetstat1').click();"
-L"			break;"
-L"		case 50:"
-L"			document.getElementById('lwtsetstat2').click();"
-L"			break;"
-L"		case 51:"
-L"			document.getElementById('lwtsetstat3').click();"
-L"			break;"
-L"		case 52:"
-L"			document.getElementById('lwtsetstat4').click();"
-L"			break;"
-L"		case 53:"
-L"			document.getElementById('lwtsetstat5').click();"
-L"			break;"
-L"		case 87:"
-L"			document.getElementById('lwtsetstat99').click();"
-L"			break;"
-L"		case 73:"
-L"			document.getElementById('lwtsetstat98').click();"
-L"			break;"
-L"		case 85:"
-L"			document.getElementById('lwtsetstat0').click();"
-L"			break;"
-L"		case 27:"
-L"			CloseOpenDialogs();"
-L"			break;"
-L"	}"
-L"}"
-L""
-L"function ExtrapLink(elem, linkForm, curTerm)"
-L"{"
-L"	if (elem == null) {return;}"
-L"	var extrap = 'javascript:void(0);';"
-L"	if (linkForm.indexOf('*') == 0)"
-L"	{"
-L"		extrap = linkForm.substr(1, linkForm.length);"
-L"		extrap = extrap.replace('###', curTerm);"
-L"		elem.setAttribute('target', '_blank');"
-L"	}"
-L"	else if (linkForm.indexOf('###') >= 0)"
-L"	{"
-L"		extrap = linkForm.replace('###', curTerm);"
-L"		elem.setAttribute('target', 'lwtiframe');"
-L"	}"
-L"	elem.setAttribute('href', extrap);"
-L"}"
-L""
-L"function moveInfoOnScroll(){document.getElementById('lwtterminfo').style.top = window.pageYOffset + 'px';}"
-L""
-L"function lwtmover(whichid, e, origin)"
-L"{"
-L"	removeSelection();"
-L"	var divRec = document.getElementById(whichid);"
-L"	if (divRec == null) {alert('could not locate term record');return;}"
-L"	window.curDivRec = divRec;"
-L"	var curTerm = divRec.getAttribute('lwtterm');"
-L"	var lastterm = document.getElementById('lwtlasthovered');"
-L"	if (lastterm == null) {alert('could not loccated lasthovered field');}"
-L"	lastterm.setAttribute('lwtterm', curTerm);"
-L"	lastterm.setAttribute('lwtstat', divRec.getAttribute('lwtstat'));"
-L"	setSelection(origin, lastterm, curTerm);"
-L"	fixPageXY(e);"
-L"	lwtshowinlinestat(e, curTerm, origin);"
-L"}"
-L""
-L"function lwtshowinfo()"
-L"{"
-L"	document.getElementById('lwtshowtrans').textContent = window.curDivRec.getAttribute('lwttrans');"
-L"	document.getElementById('lwtshowrom').textContent = window.curDivRec.getAttribute('lwtrom');"
-L"	document.getElementById('lwtcurinfoterm').setAttribute('lwtterm', window.curDivRec.getAttribute('lwtterm'));"
-L"}"
-L""
-L"function lwtshowinlinestat(e, curTerm, origin)"
-L"{"
-L"	var statbox = null;"
-L"	var curStat = '';"
-L""
-L"	if (window.mwTermBegin != null)"
-L"		statbox = document.getElementById('lwtInlineMWEndPopup');"
-L"	else"
-L"	{"
-L"		statbox = document.getElementById('lwtinlinestat');"
-L"		curStat = document.getElementById('lwtcursel').className;"
-L"		ExtrapLink(document.getElementById('lwtextrapdict1'), document.getElementById('lwtdict1').getAttribute('src'), curTerm);"
-L"		ExtrapLink(document.getElementById('lwtextrapdict2'), document.getElementById('lwtdict2').getAttribute('src'), curTerm);"
-L"		ExtrapLink(document.getElementById('lwtextrapgoogletrans'), document.getElementById('lwtgoogletrans').getAttribute('src'), curTerm);"
-L"	}"
-L""
-L"	if (statbox == null)"
-L"	{"
-L"		alert('could not locate inline status change popup');"
-L"		return;"
-L"	}"
-L""
-L"	window.curStatbox = statbox;"
-L""
-L"	var posElem = origin;"
-L"	var altElem = e.srcElement;"
-L"	var inlineTop2 = (totalTopOffset(posElem) + posElem.offsetHeight - 2);"
-L"	var inlineTop = totalTopOffset(posElem);"
-L"	if (curStat.indexOf('9') >= 0)"
-L"	{"
-L"		inlineTop -= 2;"
-L"	}"
-L""
-L""
-L"	var tlo = totalLeftOffset(posElem);window.status = window.innerWidth + '';"
-L"	if (tlo + statbox.offsetWidth > window.innerWidth)"
-L"		tlo = tlo + posElem.offsetWidth - 81;"
-L"	statbox.style.left = tlo + 'px';"
-L"	document.getElementById('lwtTermTrans').style.height = posElem.offsetHeight + 'px';"
-L"	document.getElementById('lwtTermTrans2').style.height = posElem.offsetHeight + 'px';"
-L"	statbox.style.top = inlineTop + 'px';"
-L""
-L"	var inlineBottom = inlineTop + statbox.offsetHeight;"
-L"	statbox.style.display = 'block';"
-L"	if (inlineBottom > window.pageYOffset + window.innerHeight)"
-L"		statbox.scrollIntoView(false);"
-L"}"
-L""
-L"function traverseDomTree_NextNodeByTagName(elem, aTagName)"
-L"{"
-L"	if (elem.hasChildNodes() == true)"
-L"	{"
-L"		if (elem.firstChild.tagName == aTagName)"
-L"			return elem.firstChild;"
-L"		else"
-L"			return traverseDomTree_NextNodeByTagName(elem.firstChild, aTagName);"
-L"	}"
-L""
-L"	var possNextElem = elem.nextSibling;"
-L"	if (possNextElem == null)"
-L"	{"
-L"		while (elem.parentNode.nextSibling == null)"
-L"		{"
-L"			elem = elem.parentNode;"
-L"			if (elem == null)"
-L"				return null;"
-L"		}"
-L""
-L"		if (elem.parentNode.nextSibling.tagName == aTagName)"
-L"			return elem.parentNode.nextSibling;"
-L"		else"
-L"			return traverseDomTree_NextNodeByTagName(elem.parentNode.nextSibling, aTagName);"
-L"	}"
-L""
-L"	if (possNextElem.tagName == aTagName)"
-L"		return possNextElem;"
-L"	else"
-L"		return traverseDomTree_NextNodeByTagName(possNextElem, aTagName);"
-L"}"
-L""
-L"function beginMW()"
-L"{"
-L"	window.mwTermBegin = document.getElementById('lwtcursel');"
-L"	lwtcontextexit();"
-L"}"
-L""
-L"function cancelMW()"
-L"{"
-L"	window.mwTermBegin = null;"
-L"	lwtcontextexit();"
-L"}"
-L""
-L"function captureMW(newStatus)"
-L"{"
-L"	var newTerm = getChosenMWTerm(document.getElementById('lwtcursel'));"
-L"	cancelMW();"
-L"	if (newTerm != '')"
-L"	{"
-L"		var lastterm = document.getElementById('lwtlasthovered');"
-L"		if (lastterm == null) {alert('could not locate lasthovered field');}"
-L"		lastterm.setAttribute('lwtterm', newTerm);"
-L"		lastterm.setAttribute('lwtstat', '0');"
-L""
-L"		switch(newStatus)"
-L"		{"
-L"			case 49:"
-L"				document.getElementById('lwtsetstat1').click();"
-L"				break;"
-L"			case 50:"
-L"				document.getElementById('lwtsetstat2').click();"
-L"				break;"
-L"			case 51:"
-L"				document.getElementById('lwtsetstat3').click();"
-L"				break;"
-L"			case 52:"
-L"				document.getElementById('lwtsetstat4').click();"
-L"				break;"
-L"			case 53:"
-L"				document.getElementById('lwtsetstat5').click();"
-L"				break;"
-L"			case 87:"
-L"				document.getElementById('lwtsetstat99').click();"
-L"				break;"
-L"			case 73:"
-L"				document.getElementById('lwtsetstat98').click();"
-L"				break;"
-L"		}"
-L"	}"
-L"	else"
-L"		alert('Not a valid composite term selection.');"
-L"}"
-L""
-L"function getChosenMWTerm(elemLastPart)"
-L"{"
-L"	var bWithSpaces = false;"
-L"	if (document.getElementById('lwtwithspaces').getAttribute('value') == 'yes')"
-L"		bWithSpaces = true;"
-L""
-L"	var curTerm = window.mwTermBegin.getAttribute('lwtterm');"
-L"	if (curTerm.length <= 0)"
-L"		return '';"
-L"	var chosenMWTerm = curTerm;"
-L""
-L"	var elem = window.mwTermBegin;"
-L"	for (var i = 0; i < 8; i++)"
-L"	{"
-L"		elem = traverseDomTree_NextNodeByTagName(elem, 'SPAN');"
-L""
-L"		if (elem == null)"
-L"			return '';"
-L""
-L"		curTerm = elem.getAttribute('lwtterm');"
-L"		if (curTerm.length <= 0)"
-L"			i--;"
-L"		else"
-L"		{"
-L"			if (bWithSpaces == true)"
-L"				chosenMWTerm += ' ';"
-L"			"
-L"			chosenMWTerm += curTerm;"
-L""
-L"			if (elem == elemLastPart)"
-L"				return chosenMWTerm;"
-L"		}"
-L"	}"
-L""
-L"	return '';"
-L"}"
-L""
-L"function getPossibleMWTermParts(elem)"
-L"{"
-L"	var mwList = new Array(8);"
-L"	for (var i = 0; i < 8; i++)"
-L"	{"
-L"		mwList[i] = '';"
-L"	}"
-L""
-L"	var curTerm = elem.getAttribute('lwtterm');"
-L"		"
-L"	if (curTerm.length <= 0)"
-L"		return mwList;"
-L""
-L"	for (0; i < 8; i++)"
-L"	{"
-L"		elem = traverseDomTree_NextNodeByTagName(elem, 'SPAN');"
-L""
-L"		if (elem == null)"
-L"			return mwList;"
-L""
-L"		if (elem.className == 'lwtsent')"
-L"			return mwList;"
-L""
-L"		curTerm = elem.getAttribute('lwtterm');"
-L"		if (curTerm.length <= 0)"
-L"			i--;"
-L"		else"
-L"			mwList[i] = curTerm;"
-L"	}"
-L""
-L"	return mwList;"
-L"}"
-L"function getMWTermPartsAccrued(elem)"
-L"{"
-L"	var parts = getMWTermParts(elem);"
-L"	var partsAccrued = new Array(8);"
-L""
-L"	for (var i = 0; i < 8; i++)"
-L"	{"
-L"		mwList[i] = '';"
-L"	}"
-L""
-L"	var bWithSpaces = false;"
-L"	if (document.getElementById('lwtwithspaces').getAttribute('value') == 'yes')"
-L"		bWithSpaces = true;"
-L""
-L"	var curTerm = elem.getAttribute('lwtterm');"
-L"		"
-L"	if (curTerm.length <= 0)"
-L"		return mwList;"
-L""
-L"	var accruedTerm = curTerm;"
-L""
-L"	for (i = 0; i < 8 && parts[i] != ''; i++)"
-L"	{"
-L"		if (bWithSpaces == true)"
-L"			accruedTerm += ' ';"
-L""
-L"		accruedTerm += parts[i];"
-L"		partsAccrued[i] = accruedTerm;"
-L"	}"
-L""
-L"	return partsAccrued;"
-L"	"
-L"}"
+		out.append(wJavascript);
+//L"function lwtSetup()"
+//L"{"
+//L"	var panelHeight = document.getElementById('lwtterminfo').offsetHeight;"
+//L"  document.getElementById('lwtIntroDiv').style.height = panelHeight + 'px';"
+//L"  document.getElementById('lwtSettings').style.height = panelHeight + 'px';"
+//L"	window.onscroll = moveInfoOnScroll;"
+//L"	document.attachEvent('onkeydown', lwtkeypress);"
+//L"}"
+//L""
+//L"function totalLeftOffset(element)"
+//L"{"
+//L"	var amount = 0;"
+//L"	while (element != null)"
+//L"	{"
+//L"		amount += element.offsetLeft;"
+//L"		element = element.offsetParent;"
+//L"	}"
+//L"	return amount;"
+//L"}"
+//L""
+//L"function totalTopOffset(element)"
+//L"{"
+//L"	var amount = 0;"
+//L"	while (element != null)"
+//L"	{"
+//L"		amount += element.offsetTop;"
+//L"		element = element.offsetParent;"
+//L"	}"
+//L"	return amount;"
+//L"}"
+//L""
+//L"function fixPageXY(e)"
+//L"{"
+//L"	if (e.pageX == null && e.clientX != null )"
+//L"	{"
+//L"		var html = document.documentElement;"
+//L"		var body = document.body;"
+//L"		e.pageX = e.clientX + (html.scrollLeft || body && body.scrollLeft || 0);"
+//L"		e.pageX -= html.clientLeft || 0;"
+//L"		e.pageY = e.clientY + (html.scrollTop || body && body.scrollTop || 0);"
+//L"		e.pageY -= html.clientTop || 0;"
+//L"	}"
+//L"}"
+//L""
+//L"function setSelection(elem, lastterm, curTerm)"
+//L"{"
+//L"	elem.id = 'lwtcursel';"
+//L"	lastterm.setAttribute('lwtcursel', curTerm);"
+//L"	elem.className = elem.className + ' lwtSel';"
+//L"}"
+//L""
+//L"function getSelection()"
+//L"{"
+//L"	var elem = document.getElementById('lwtcursel');"
+//L"	if (elem === null)"
+//L"		return '';"
+//L"	return elem.getAttribute('lwtcursel');"
+//L"}"
+//L""
+//L"function removeSelection()"
+//L"{"
+//L"	var elem = document.getElementById('lwtcursel');"
+//L"	if (elem == null)"
+//L"	{"
+//L"		return;"
+//L"	}"
+//L"	elem.id = '';"
+//L"	document.getElementById('lwtlasthovered').setAttribute('lwtcursel','');"
+//L"	var curClass = elem.className;"
+//L"	var lastSpace = curClass.lastIndexOf(' ');"
+//L"	if (lastSpace >= 0)"
+//L"	{"
+//L"		var putClass = curClass.substr(0, lastSpace + 1);"
+//L"		elem.className = putClass;"
+//L"	}"
+//L"}"
+//L""
+//L"function XOnElement(x, elem)"
+//L"{"
+//L"	if (x < totalLeftOffset(elem) || x >= totalLeftOffset(elem) + elem.offsetWidth)"
+//L"	{"
+//L"		return false;"
+//L"	}"
+//L"	return true;"
+//L"}"
+//L""
+//L"function YOnElement(y, elem)"
+//L"{"
+//L"	if (y < totalTopOffset(elem) || y >= totalTopOffset(elem) + elem.offsetHeight)"
+//L"	{"
+//L"		return false;"
+//L"	}"
+//L"	return true;"
+//L"}"
+//L""
+//L"function XYOnElement(x, y, elem)"
+//L"{"
+//L"	return (XOnElement(x, elem) && YOnElement(y, elem));"
+//L"}"
+//L""
+//L"function lwtcontextexit()"
+//L"{"
+//L"	removeSelection();"
+//L"	CloseOpenDialogs();"
+//L"}"
+//L""
+//L"function lwtdivmout(e)"
+//L"{"
+//L"	fixPageXY(e);"
+//L"	var statbox = window.curStatbox;"
+//L"	var bVal = XYOnElement(e.pageX, e.pageY, statbox);"
+//L"	if (bVal == false)"
+//L"	{"
+//L"		lwtmout(e);"
+//L"	}"
+//L"}"
+//L""
+//L"function lwtmout(e)"
+//L"{"
+//L"	fixPageXY(e);"
+//L"	var statbox = window.curStatbox;"
+//L"	if (!XYOnElement(e.pageX, e.pageY, statbox))"
+//L"	{"
+//L"		lwtcontextexit();"
+//L"	}"
+//L"}"
+//L""
+//L"function CloseOpenDialogs()"
+//L"{"
+//L"	window.curStatbox.style.display = 'none';"
+//L"}"
+//L""
+//L"function lwtkeypress()"
+//L"{"
+//L"	if (document.getElementById('lwtlasthovered').getAttribute('lwtcursel') == '' || window.mwTermBegin != null)"
+//L"		return;"
+//L"	var e = window.event;"
+//L"	if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey)"
+//L"		return;"
+//L"	switch(e.keyCode)"
+//L"	{"
+//L"		case 49:"
+//L"			document.getElementById('lwtsetstat1').click();"
+//L"			break;"
+//L"		case 50:"
+//L"			document.getElementById('lwtsetstat2').click();"
+//L"			break;"
+//L"		case 51:"
+//L"			document.getElementById('lwtsetstat3').click();"
+//L"			break;"
+//L"		case 52:"
+//L"			document.getElementById('lwtsetstat4').click();"
+//L"			break;"
+//L"		case 53:"
+//L"			document.getElementById('lwtsetstat5').click();"
+//L"			break;"
+//L"		case 87:"
+//L"			document.getElementById('lwtsetstat99').click();"
+//L"			break;"
+//L"		case 73:"
+//L"			document.getElementById('lwtsetstat98').click();"
+//L"			break;"
+//L"		case 85:"
+//L"			document.getElementById('lwtsetstat0').click();"
+//L"			break;"
+//L"		case 27:"
+//L"			CloseOpenDialogs();"
+//L"			break;"
+//L"	}"
+//L"}"
+//L""
+//L"function ExtrapLink(elem, linkForm, curTerm)"
+//L"{"
+//L"	if (elem == null) {return;}"
+//L"	var extrap = 'javascript:void(0);';"
+//L"	if (linkForm.indexOf('*') == 0)"
+//L"	{"
+//L"		extrap = linkForm.substr(1, linkForm.length);"
+//L"		extrap = extrap.replace('###', curTerm);"
+//L"		elem.setAttribute('target', '_blank');"
+//L"	}"
+//L"	else if (linkForm.indexOf('###') >= 0)"
+//L"	{"
+//L"		extrap = linkForm.replace('###', curTerm);"
+//L"		elem.setAttribute('target', 'lwtiframe');"
+//L"	}"
+//L"	elem.setAttribute('href', extrap);"
+//L"}"
+//L""
+//L"function moveInfoOnScroll(){document.getElementById('lwtterminfo').style.top = window.pageYOffset + 'px';}"
+//L""
+//L"function lwtmover(whichid, e, origin)"
+//L"{"
+//L"	removeSelection();"
+//L"	var divRec = document.getElementById(whichid);"
+//L"	if (divRec == null) {alert('could not locate term record');return;}"
+//L"	window.curDivRec = divRec;"
+//L"	var curTerm = divRec.getAttribute('lwtterm');"
+//L"	document.getElementById('lwtSetTermLabel').textContent = curTerm;"
+//L"	document.getElementById('lwtshowtrans').textContent = window.curDivRec.getAttribute('lwttrans');"
+//L"	document.getElementById('lwtshowrom').textContent = window.curDivRec.getAttribute('lwtrom');"
+//L"	var lastterm = document.getElementById('lwtlasthovered');"
+//L"	if (lastterm == null) {alert('could not loccated lasthovered field');}"
+//L"	lastterm.setAttribute('lwtterm', curTerm);"
+//L"	lastterm.setAttribute('lwtstat', divRec.getAttribute('lwtstat'));"
+//L"	setSelection(origin, lastterm, curTerm);"
+//L"	fixPageXY(e);"
+//L"	lwtshowinlinestat(e, curTerm, origin);"
+//L"}"
+//L""
+//L"function lwtStartEdit()"
+//L"{"
+//L"	document.getElementById('lwtshowtrans').textContent = window.curDivRec.getAttribute('lwttrans');"
+//L"	document.getElementById('lwtshowrom').textContent = window.curDivRec.getAttribute('lwtrom');"
+//L"	document.getElementById('lwtcurinfoterm').setAttribute('lwtterm', window.curDivRec.getAttribute('lwtterm'));"
+//L"}"
+//L""
+//L"function lwtshowinlinestat(e, curTerm, origin)"
+//L"{"
+//L"	var statbox = null;"
+//L"	var curStat = '';"
+//L""
+//L"	if (window.mwTermBegin != null)"
+//L"		statbox = document.getElementById('lwtInlineMWEndPopup');"
+//L"	else"
+//L"	{"
+//L"		statbox = document.getElementById('lwtinlinestat');"
+//L"		curStat = document.getElementById('lwtcursel').className;"
+//L"		ExtrapLink(document.getElementById('lwtextrapdict1'), document.getElementById('lwtdict1').getAttribute('src'), curTerm);"
+//L"		ExtrapLink(document.getElementById('lwtextrapdict2'), document.getElementById('lwtdict2').getAttribute('src'), curTerm);"
+//L"		ExtrapLink(document.getElementById('lwtextrapgoogletrans'), document.getElementById('lwtgoogletrans').getAttribute('src'), curTerm);"
+//L"	}"
+//L""
+//L"	if (statbox == null)"
+//L"	{"
+//L"		alert('could not locate inline status change popup');"
+//L"		return;"
+//L"	}"
+//L""
+//L"	window.curStatbox = statbox;"
+//L""
+//L"	var posElem = origin;"
+//L"	var altElem = e.srcElement;"
+//L"	var inlineTop2 = (totalTopOffset(posElem) + posElem.offsetHeight - 2);"
+//L"	var inlineTop = totalTopOffset(posElem);"
+//L"	if (curStat.indexOf('9') >= 0)"
+//L"	{"
+//L"		inlineTop -= 2;"
+//L"	}"
+//L""
+//L""
+//L"	var tlo = totalLeftOffset(posElem);window.status = window.innerWidth + '';"
+//L"	if (tlo + statbox.offsetWidth > window.innerWidth)"
+//L"		tlo = tlo + posElem.offsetWidth - 81;"
+//L"	statbox.style.left = tlo + 'px';"
+//L"	document.getElementById('lwtTermTrans').style.height = posElem.offsetHeight + 'px';"
+//L"	document.getElementById('lwtTermTrans2').style.height = posElem.offsetHeight + 'px';"
+//L"	statbox.style.top = inlineTop + 'px';"
+//L""
+//L"	var inlineBottom = inlineTop + statbox.offsetHeight;"
+//L"	statbox.style.display = 'block';"
+//L"	if (inlineBottom > window.pageYOffset + window.innerHeight)"
+//L"		statbox.scrollIntoView(false);"
+//L"}"
+//L""
+//L"function traverseDomTree_NextNodeByTagName(elem, aTagName)"
+//L"{"
+//L"	if (elem.hasChildNodes() == true)"
+//L"	{"
+//L"		if (elem.firstChild.tagName == aTagName)"
+//L"			return elem.firstChild;"
+//L"		else"
+//L"			return traverseDomTree_NextNodeByTagName(elem.firstChild, aTagName);"
+//L"	}"
+//L""
+//L"	var possNextElem = elem.nextSibling;"
+//L"	if (possNextElem == null)"
+//L"	{"
+//L"		while (elem.parentNode.nextSibling == null)"
+//L"		{"
+//L"			elem = elem.parentNode;"
+//L"			if (elem == null)"
+//L"				return null;"
+//L"		}"
+//L""
+//L"		if (elem.parentNode.nextSibling.tagName == aTagName)"
+//L"			return elem.parentNode.nextSibling;"
+//L"		else"
+//L"			return traverseDomTree_NextNodeByTagName(elem.parentNode.nextSibling, aTagName);"
+//L"	}"
+//L""
+//L"	if (possNextElem.tagName == aTagName)"
+//L"		return possNextElem;"
+//L"	else"
+//L"		return traverseDomTree_NextNodeByTagName(possNextElem, aTagName);"
+//L"}"
+//L""
+//L"function beginMW()"
+//L"{"
+//L"	window.mwTermBegin = document.getElementById('lwtcursel');"
+//L"	lwtcontextexit();"
+//L"}"
+//L""
+//L"function cancelMW()"
+//L"{"
+//L"	window.mwTermBegin = null;"
+//L"	lwtcontextexit();"
+//L"}"
+//L""
+//L"function captureMW(newStatus)"
+//L"{"
+//L"	var newTerm = getChosenMWTerm(document.getElementById('lwtcursel'));"
+//L"	cancelMW();"
+//L"	if (newTerm != '')"
+//L"	{"
+//L"		var lastterm = document.getElementById('lwtlasthovered');"
+//L"		if (lastterm == null) {alert('could not locate lasthovered field');}"
+//L"		lastterm.setAttribute('lwtterm', newTerm);"
+//L"		lastterm.setAttribute('lwtstat', '0');"
+//L""
+//L"		switch(newStatus)"
+//L"		{"
+//L"			case 49:"
+//L"				document.getElementById('lwtsetstat1').click();"
+//L"				break;"
+//L"			case 50:"
+//L"				document.getElementById('lwtsetstat2').click();"
+//L"				break;"
+//L"			case 51:"
+//L"				document.getElementById('lwtsetstat3').click();"
+//L"				break;"
+//L"			case 52:"
+//L"				document.getElementById('lwtsetstat4').click();"
+//L"				break;"
+//L"			case 53:"
+//L"				document.getElementById('lwtsetstat5').click();"
+//L"				break;"
+//L"			case 87:"
+//L"				document.getElementById('lwtsetstat99').click();"
+//L"				break;"
+//L"			case 73:"
+//L"				document.getElementById('lwtsetstat98').click();"
+//L"				break;"
+//L"		}"
+//L"	}"
+//L"	else"
+//L"		alert('Not a valid composite term selection.');"
+//L"}"
+//L""
+//L"function getChosenMWTerm(elemLastPart)"
+//L"{"
+//L"	var bWithSpaces = false;"
+//L"	if (document.getElementById('lwtwithspaces').getAttribute('value') == 'yes')"
+//L"		bWithSpaces = true;"
+//L""
+//L"	var curTerm = window.mwTermBegin.getAttribute('lwtterm');"
+//L"	if (curTerm.length <= 0)"
+//L"		return '';"
+//L"	var chosenMWTerm = curTerm;"
+//L""
+//L"	var elem = window.mwTermBegin;"
+//L"	for (var i = 0; i < 8; i++)"
+//L"	{"
+//L"		elem = traverseDomTree_NextNodeByTagName(elem, 'SPAN');"
+//L""
+//L"		if (elem == null)"
+//L"			return '';"
+//L""
+//L"		curTerm = elem.getAttribute('lwtterm');"
+//L"		if (curTerm.length <= 0)"
+//L"			i--;"
+//L"		else"
+//L"		{"
+//L"			if (bWithSpaces == true)"
+//L"				chosenMWTerm += ' ';"
+//L"			"
+//L"			chosenMWTerm += curTerm;"
+//L""
+//L"			if (elem == elemLastPart)"
+//L"				return chosenMWTerm;"
+//L"		}"
+//L"	}"
+//L""
+//L"	return '';"
+//L"}"
+//L""
+//L"function getPossibleMWTermParts(elem)"
+//L"{"
+//L"	var mwList = new Array(8);"
+//L"	for (var i = 0; i < 8; i++)"
+//L"	{"
+//L"		mwList[i] = '';"
+//L"	}"
+//L""
+//L"	var curTerm = elem.getAttribute('lwtterm');"
+//L"		"
+//L"	if (curTerm.length <= 0)"
+//L"		return mwList;"
+//L""
+//L"	for (0; i < 8; i++)"
+//L"	{"
+//L"		elem = traverseDomTree_NextNodeByTagName(elem, 'SPAN');"
+//L""
+//L"		if (elem == null)"
+//L"			return mwList;"
+//L""
+//L"		if (elem.className == 'lwtsent')"
+//L"			return mwList;"
+//L""
+//L"		curTerm = elem.getAttribute('lwtterm');"
+//L"		if (curTerm.length <= 0)"
+//L"			i--;"
+//L"		else"
+//L"			mwList[i] = curTerm;"
+//L"	}"
+//L""
+//L"	return mwList;"
+//L"}"
+//L"function getMWTermPartsAccrued(elem)"
+//L"{"
+//L"	var parts = getMWTermParts(elem);"
+//L"	var partsAccrued = new Array(8);"
+//L""
+//L"	for (var i = 0; i < 8; i++)"
+//L"	{"
+//L"		mwList[i] = '';"
+//L"	}"
+//L""
+//L"	var bWithSpaces = false;"
+//L"	if (document.getElementById('lwtwithspaces').getAttribute('value') == 'yes')"
+//L"		bWithSpaces = true;"
+//L""
+//L"	var curTerm = elem.getAttribute('lwtterm');"
+//L"		"
+//L"	if (curTerm.length <= 0)"
+//L"		return mwList;"
+//L""
+//L"	var accruedTerm = curTerm;"
+//L""
+//L"	for (i = 0; i < 8 && parts[i] != ''; i++)"
+//L"	{"
+//L"		if (bWithSpaces == true)"
+//L"			accruedTerm += ' ';"
+//L""
+//L"		accruedTerm += parts[i];"
+//L"		partsAccrued[i] = accruedTerm;"
+//L"	}"
+//L""
+//L"	return partsAccrued;"
+//L"	"
+//L"}"
 
-			);
+//			);
 
 
 		chaj::DOM::SetAttributeValue(pScript, L"type", L"text/javascript");
@@ -3002,7 +3045,7 @@ L"}"
 	(wstring& out, const TokenStruct& tokens, const TokenStruct& tknWithout, const TokenStruct& tknCanonical)
 	{
 		TRACE(L"%s", L"Calling AppendAnnotatedContent_MaintainBookmarks\n");
-		for (int i = 0; i < tokens.size(); ++i)
+		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
 		{
 			if (tokens[i].bDigested == false)
 			{
@@ -3012,7 +3055,7 @@ L"}"
 
 			out.append(L"<span class=\"lwtSent\"></span>");
 
-			for (int j = 0; j < tokens[i].size(); ++j)
+			for (vector<Token_Word>::size_type j = 0; j < tokens[i].size(); ++j)
 			{
 				if (tokens[i].isWordDigested(j) == false)
 				{
@@ -3039,9 +3082,9 @@ L"}"
 					{
 
 						stack<mwVals> stkMWTerms;
-						int nSkipCount = 0;
+						unsigned int nSkipCount = 0;
 						// gather a stack of term statuses for tracked multiword terms that start at this word
-						for (int k = j + 1; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
+						for (vector<Token_Word>::size_type k = j + 1; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
 						{
 							if (tokens[i].isWordDigested(k) == false)
 							{
@@ -3224,11 +3267,11 @@ L"}"
 	void GetTokensWithoutBookmarks(TokenStruct& tokensWithout, const TokenStruct& tokens)
 	{
 		TRACE(L"%s", L"Calling GetTokensWithoutBookmarks\n");
-		for (int i = 0; i < tokens.size(); ++i)
+		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
 		{
 			Token_Sentence ts(tokens[i].bDigested);
 
-			for (int j = 0; j < tokens[i].size(); ++j)
+			for (vector<Token_Sentence>::size_type j = 0; j < tokens[i].size(); ++j)
 			{
 				ts.push_back(WordSansBookmarks(tokens[i][j]), tokens[i].isWordDigested(j));
 			}
@@ -3240,11 +3283,11 @@ L"}"
 	void GetTokensCanonical(TokenStruct& tokensCanonical, const TokenStruct& tokensWithout)
 	{
 		TRACE(L"%s", L"Calling GetTokensCanonical\n");
-		for (int i = 0; i < tokensWithout.size(); ++i)
+		for (vector<Token_Sentence>::size_type i = 0; i < tokensWithout.size(); ++i)
 		{
 			Token_Sentence ts(tokensWithout[i].bDigested);
 
-			for (int j = 0; j < tokensWithout[i].size(); ++j)
+			for (vector<Token_Sentence>::size_type j = 0; j < tokensWithout[i].size(); ++j)
 			{
 				ts.push_back(chaj::str::wstring_tolower(tokensWithout[i][j]), tokensWithout[i].isWordDigested(j));
 			}
@@ -3301,24 +3344,11 @@ L"}"
 	}
 	void ExpandChunkEntities(vector<wstring>& chunks)
 	{
-		for (int i = 0; i < chunks.size(); ++i)
+		for (vector<wstring>::size_type i = 0; i < chunks.size(); ++i)
 			ReplaceHTMLEntitiesWithChars(chunks[i]);
 	}
 	void NewParse(IHTMLDocument2* pDoc)
 	{
-
-		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
-		if (!pRange)
-			return;
-
-		BSTR bstrHTMLText;
-
-		wstring wstrText = HTMLTxtRange_get_text(pRange);
-		pRange->get_htmlText(&bstrHTMLText);
-		wstring wstrHTMLText(bstrHTMLText);
-		SysFreeString(bstrHTMLText);
-		int i = 0;
-
 		IHTMLElement* pBody = NULL;
 		wstring wsBodyContent = L"";
 		GetBodyContent(wsBodyContent, pBody, pDoc);	
@@ -3349,7 +3379,7 @@ L"}"
 		GetTokensCanonical(tknCanonical, tknSansBookmarks);
 
 		UpdateCaches(tknCanonical);
-		ReconstructDoc(tokens, tknSansBookmarks, tknCanonical, pRange, wstrText, wstrHTMLText, pDoc, pBody);	
+		ReconstructDoc(tokens, tknSansBookmarks, tknCanonical, pDoc, pBody);	
 
 #ifdef _DEBUG
 		IHTMLElement* pBody2 = NULL;
@@ -3386,7 +3416,26 @@ L"}"
 			AppendTermRecordDiv(pBody, *it, cache.find(*it)->second);
 		}
 	}
-	void AppendPopup_HtmlChangeStatus(IHTMLDocument2* pDoc, IHTMLElement* pBody)
+	wstring LanguageChoice_GetDropdownHTML()
+	{
+		wstring wResult = L"";
+		wstring wQuery = L"select LgID, LgName from languages";
+		if (this->DoExecuteDirect(L"3394uhfljh", wQuery))
+		{
+			while (tStmt.fetch_next())
+			{
+				wResult.append(L"<option value=\"");
+				wResult.append(tStmt.field(1).as_string());
+				wResult.append(L"\">");
+				wResult.append(tStmt.field(2).as_string());
+				wResult.append(L"</option>");
+			}
+		}
+		
+		tStmt.free_results();
+		return wResult;
+	}
+	void AppendHtmlBlocks(IHTMLDocument2* pDoc, IHTMLElement* pBody)
 	{
 		wstring out;
 		out.append(
@@ -3396,7 +3445,7 @@ L"}"
 		L"<span class=\"lwtStat2\" id=\"lwtsetstat2\" lwtstat=\"2\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" lwtstatchange=\"true\">2</span>"
 		L"<span class=\"lwtStat3\" id=\"lwtsetstat3\" lwtstat=\"3\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" lwtstatchange=\"true\">3</span>"
 		L"<span class=\"lwtStat4\" id=\"lwtsetstat4\" lwtstat=\"4\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" lwtstatchange=\"true\">4</span>"
-		L"<span class=\"lwtStat5\" id=\"lwtsetstat5\" lwtstat=\"5\" style=\"border:solid black 1px;display:inline-block;width:15px\;text-align:center;\" lwtstatchange=\"true\">5</span><br />"
+		L"<span class=\"lwtStat5\" id=\"lwtsetstat5\" lwtstat=\"5\" style=\"border:solid black 1px;display:inline-block;width:15px;text-align:center;\" lwtstatchange=\"true\">5</span><br />"
 		L"<span class=\"lwtStat99\" id=\"lwtsetstat99\" lwtstat=\"99\" style=\"border-left:solid black 1px;border-bottom: solid 1px #CCFFCC;display:inline-block;width:26px;text-align:center;\" lwtstatchange=\"true\" title=\"Well Known\">W</span>"
 		L"<span class=\"lwtStat98\" id=\"lwtsetstat98\" lwtstat=\"98\" style=\"border-left:solid black 1px;display:inline-block;width:26px;text-align:center;\" lwtstatchange=\"true\" title=\"Ignore\">Ig</span>"
 		L"<span class=\"lwtStat0\" id=\"lwtsetstat0\" lwtstat=\"0\" style=\"border-left:solid black 1px;border-right:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:25px;text-align:center;\" lwtstatchange=\"true\" title=\"Untrack\">Un</span><br />"
@@ -3404,7 +3453,7 @@ L"}"
 		L"<span style=\"border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:26px;text-align:center;background-color:white;\" title=\"Dictionary 2\"><a id=\"lwtextrapdict2\" href=\"\">D2</a></span>"
 		L"<span style=\"border-left:solid black 1px;border-bottom:solid black 1px;border-right:solid black 1px;display:inline-block;width:25px;text-align:center;background-color:white;\" title=\"Google Translate Term\"><a id=\"lwtextrapgoogletrans\" href=\"\">GT</a></span><br />"
 		L"<span id=\"lwtmwstart\" style=\"border-left:solid black 1px;border-bottom:solid black 1px;border-right:solid black 1px;display:inline-block;width:79px;text-align:center;background-color:white;\" onclick=\"beginMW();\" mwbuffer=\"true\" title=\"Begin Multiple Word Term\">Multi</span><br />"
-		L"<span onmouseover=\"lwtshowinfo();\" style=\"border-left:solid black 1px;border-bottom:solid black 1px;border-right:solid black 1px;display:inline-block;width:79px;text-align:center;background-color:white;\">Info</span>"
+		L"<span onclick=\"lwtStartEdit();\" style=\"border-left:solid black 1px;border-bottom:solid black 1px;border-right:solid black 1px;display:inline-block;width:79px;text-align:center;background-color:white;\">Edit</span>"
 		L"</div>"
 		L"<div id=\"lwtlasthovered\" style=\"display:none;\" lwtterm=\"\"></div>"
 		);
@@ -3416,7 +3465,7 @@ L"}"
 		L"<span class=\"lwtStat2\" lwtstat=\"2\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" onclick=\"captureMW(50);\">2</span>"
 		L"<span class=\"lwtStat3\" lwtstat=\"3\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" onclick=\"captureMW(51);\">3</span>"
 		L"<span class=\"lwtStat4\" lwtstat=\"4\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" onclick=\"captureMW(52);\">4</span>"
-		L"<span class=\"lwtStat5\" lwtstat=\"5\" style=\"border:solid black 1px;display:inline-block;width:15px\;text-align:center;\" onclick=\"captureMW(53);\">5</span><br />"
+		L"<span class=\"lwtStat5\" lwtstat=\"5\" style=\"border:solid black 1px;display:inline-block;width:15px;text-align:center;\" onclick=\"captureMW(53);\">5</span><br />"
 		L"<span class=\"lwtStat99\" lwtstat=\"99\" style=\"border-left:solid black 1px;border-bottom: solid 1px #CCFFCC;display:inline-block;width:39px;text-align:center;\" onclick=\"captureMW(87);\" title=\"Well Known\">Well</span>"
 		L"<span class=\"lwtStat98\" lwtstat=\"98\" style=\"border-left:solid black 1px;border-right:solid black 1px;display:inline-block;width:39px;text-align:center;\" onclick=\"captureMW(73);\" title=\"Ignore\">Ignore</span><br />"
 		L"<span style=\"border-left:solid black 1px;border-bottom:solid black 1px;border-right:solid black 1px;display:inline-block;width:79px;text-align:center;background-color:white;\" onclick=\"cancelMW();\" mwbuffer=\"true\" title=\"Abort Multiple Word Term\">Abort</span>"
@@ -3424,18 +3473,41 @@ L"}"
 		);
 
 		out.append(
-		L"<div id=\"lwtterminfo\" style=\"position:absolute;left:0;top:0;width:100%;background-color:white;\">"
+		L"<div id=\"lwtterminfo\" style=\"position:absolute;left:0;top:0;width:100%;background-color:white;z-index:5;display:none;\">"
 		L"<div style=\"width:50%;height:100%;float:left\">"
-		L"Definition:<br />"
-		L"<textarea id=\"lwtshowtrans\" style=\"width:85%;display:inline;\" rows=\"5\"></textarea>&nbsp;<button type=\"button\" style=\"vertical-align:top\" lwttranschange=\"true\";\">Update</button><br />"
-		L"Romanization:<br />"
-		L"<textarea id=\"lwtshowrom\" style=\"width:85%;display:inline;\" rows=\"1\"></textarea>&nbsp;<button type=\"button\" style=\"vertical-align:top\" lwtromchange=\"true\";\">Update</button><br />"
+		L"&nbsp;Definition of <span id=\"lwtSetTermLabel\"></span>:<br />"
+		L"<textarea id=\"lwtshowtrans\" style=\"width:90%;display:inline;\" rows=\"3\"></textarea><br />"
+		L"&nbsp;Romanization:<br />"
+		L"<textarea id=\"lwtshowrom\" style=\"font-family:'arial';width:90%;display:inline;\" rows=\"1\"></textarea><br />"
+		L"<div style=\"margin:0px auto;width:200px;\"><button type=\"button\" style=\"\" lwtAction=\"lwtUpdateTermInfo\">Update</button>&nbsp;&nbsp"
+		L"<button type=\"button\" style=\"\" onclick=\"closeEditBox();\">Close</button></div>"
 		L"</div><div style=\"width:50%;float:right;\">"
 		L"<iframe id=\"lwtiframe\" name=\"lwtiframe\" src=\"\" style=\"width:100%\"></iframe>"
 		L"</div>"
 		L"</div>"
 		L"<div id=\"lwtcurinfoterm\" style=\"display:none;\" lwtterm=\"\"></div>"
 		);
+
+		out.append(
+		L"<div id=\"lwtPopupInfo\" style=\"font-family:'arial';position:absolute;left:0;top:0;width:100%;z-index:100;display:none;\">"
+		L"<div id=\"lwtPopupTrans\" style=\"border: solid black 1px;background-color:white;clear:both;\"></div>"
+		L"<div id=\"lwtPopupRom\" style=\"border-bottom:solid black 1px;border-left:solid black 1px;border-right:solid black 1px;background-color:white;clear:both\"></div>"
+		L"</div>"
+		);
+
+		wstring wDropdown = LanguageChoice_GetDropdownHTML();
+
+		out.append(
+			L"<div id=\"lwtSettings\" style=\"position:absolute;left:0;top:0;width:100%;background-color:white;display:none;z-index:1000;\">"
+			L"Choose language: <select id=\"lwtLangDropdown\" onchange=\"lwtChangeLang(this);\">");
+		out.append(wDropdown.c_str());
+		out.append(
+			L"</select><br />"
+			L"<button type=\"button\" onclick=\"document.getElementById('lwtSettings').style.display = 'none';\">Close Settings</button>"
+			L"</div>"
+			L"<div id=\"lwtCurLangChoice\" style=\"display:none;\" value=\"\" lwtAction=\"changeLang\"></div>"
+			L"<div id=\"lwtBhoCommand\" style=\"display:none;\" value=\"\" onclick=\"lwtExecBhoCommand()\"></div>"
+			);
 
 		out.append(L"<div id=\"lwtdict1\" style=\"display:none;\" src=\"");
 		out.append(wstrDict1);
@@ -3461,18 +3533,18 @@ L"}"
 		HRESULT hr = chaj::DOM::AppendHTMLBeforeEnd(out, pBody);
 		assert(SUCCEEDED(hr));
 
-		out = L"<div id=\"lwtIntroDiv\" style=\"background-color:white\"><hr /></div>";
+		out = L"<div id=\"lwtIntroDiv\" style=\"background-color:white\"></div>";
 		hr = chaj::DOM::AppendHTMLAfterBegin(out, pBody);
 		assert(SUCCEEDED(hr));
 	}
 	void GetSetOfTerms(unordered_set<wstring>& out, const TokenStruct& tknCanonical)
 	{
 		TRACE(L"%s", L"Calling GetSetOfTerms\n");
-		for (int i = 0; i < tknCanonical.size(); ++i)
+		for (vector<Token_Sentence>::size_type i = 0; i < tknCanonical.size(); ++i)
 		{
 			if (tknCanonical[i].bDigested)
 			{
-				for (int j = 0; j < tknCanonical[i].size(); ++j)
+				for (vector<Token_Sentence>::size_type j = 0; j < tknCanonical[i].size(); ++j)
 				{
 					if (tknCanonical[i].isWordDigested(j))
 					{
@@ -3487,7 +3559,7 @@ L"}"
 							{
 								int nSkipCount = 0;
 								// gather a stack of term statuses for tracked multiword terms that start at this word
-								for (int k = j + 1; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
+								for (vector<Token_Word>::size_type k = j + 1; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
 								{
 									if (tokens[i].isWordDigested(k) == false)
 									{
@@ -3514,34 +3586,43 @@ L"}"
 		}
 		TRACE(L"%s", L"Leaving GetSetOfTerms\n");
 	}
-	void ReconstructDoc(const TokenStruct& tokens, const TokenStruct& tknWithout, const TokenStruct& tknCanonical, IHTMLTxtRange* pRange, wstring wstrText, wstring wstrHTMLText, IHTMLDocument2* pDoc, IHTMLElement* pBody)
+	void AppendCss(IHTMLDocument2* pDoc)
+	{
+		HRESULT hr = AppendStylesToDoc(this->wCss, pDoc);
+		assert(SUCCEEDED(hr));
+	}
+	void dhr(HRESULT hr) //(D)ebug (HR)esult
+	{
+		assert(SUCCEEDED(hr));
+	}
+	void ReconstructDoc(const TokenStruct& tokens, const TokenStruct& tknWithout, const TokenStruct& tknCanonical, IHTMLDocument2* pDoc, IHTMLElement* pBody)
 	{
 		HRESULT hr;
 		VARIANT_BOOL vBool;
 		wstring out;
 		int lwtid = 1;
 
-		wstring intro(L".lwtStat0 {background-color: #ADDFFF} .lwtStat1 {background-color: #F5B8A9} .lwtStat2 {background-color: #F5CCA9} .lwtStat3 {background-color: #F5E1A9} .lwtStat4 {background-color: #F5F3A9} .lwtStat5 {background-color: #DDFFDD} .lwtStat99 {background-color: #F8F8F8;border-bottom: solid 2px #CCFFCC} .lwtStat98 {background-color: #F8F8F8;border-bottom: dashed 1px #000000} #lwtcursel {border-left: solid black 1px;border-right: solid black 1px;border-top:solid black 1px}");
-		hr = AppendStylesToDoc(intro, pDoc);
-		if (FAILED(hr))
-		{
-			TRACE(L"Leaving ReconstructDoc with error: could not append styles.\n");
+		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
+		if (!pRange)
 			return;
-		}
 
-		BSTR bstrHowEndToStart = SysAllocString(L"EndToStart");
+		wstring wstrText = HTMLTxtRange_get_text(pRange);
+		wstring wstrHTMLText = HTMLTxtRange_htmlText(pRange);
+
+		AppendCss(pDoc);
+
+		_bstr_t bSentenceMarker(L"<span class=\"lwtSent\" lwtsent=\"lwtsent\"></span>");
 		BSTR bstrSentenceMarker = SysAllocString(L"<span class=\"lwtSent\" lwtsent=\"lwtsent\"></span>");
-		hr = pRange->setEndPoint(bstrHowEndToStart, pRange);
+		dhr(chaj::DOM::TxtRange_CollapseToBegin(pRange));
 
-		for (int i = 0; i < tokens.size(); ++i)
+		for (decltype(tokens.size()) i = 0; i < tokens.size(); ++i)
 		{
 			if (tokens[i].bDigested == false)
 				continue;
 
-			hr = pRange->pasteHTML(bstrSentenceMarker);
-			assert(hr == S_OK);
+			dhr(pRange->pasteHTML(bstrSentenceMarker));
 			
-			for (int j = 0; j < tokens[i].size(); ++j)
+			for (decltype(tokens[i].size()) j = 0; j < tokens[i].size(); ++j)
 			{
 				if (tokens[i].isWordDigested(j) == false)
 					continue;
@@ -3555,8 +3636,7 @@ L"}"
 					continue;
 				}
 
-				unordered_map<wstring,TermRecord>::const_iterator it = cache.find(tknCanonical[i][j]);
-				assert(it != cache.end()); // there should always be a result
+				cache_cit it = cache.find(tknCanonical[i][j]); assert(it != cache.end()); // there should always be a result
 
 				if (it->second.nTermsBeyond != 0) //the term might participate in multiword terms
 				{
@@ -3566,7 +3646,7 @@ L"}"
 						stack<mwVals> stkMWTerms;
 						int nSkipCount = 0;
 						// gather a stack of term statuses for tracked multiword terms that start at this word
-						for (int k = j + 1; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
+						for (decltype(tokens[i].size()) k = j + 1; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
 						{
 							if (tokens[i].isWordDigested(k) == false)
 							{
@@ -3581,7 +3661,7 @@ L"}"
 							if (usetPageMWList.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 								break;
 
-							unordered_map<wstring,TermRecord>::const_iterator it = cache.cfind(curTerm);
+							cache_cit it = cache.cfind(curTerm);
 							if (it != cache.cend())
 								stkMWTerms.push(mwVals(&(it->second), to_wstring(k-j+1-nSkipCount), curTerm));
 						}
@@ -3597,35 +3677,32 @@ L"}"
 				}
 
 				if (tokens[i][j].find(tknWithout[i][j]) != wstring::npos)
+				{
 					AppendSoloWordSpan(out, tknWithout[i][j], tknCanonical[i][j], &(it->second));
+					BSTR bNew = SysAllocString(out.c_str());
+					hr = pRange->pasteHTML(bNew);
+					assert(SUCCEEDED(hr));
+					SysFreeString(bNew);
+				}
 				else
 				{
-					wstring out(tokens[i][j]);
-					RestoreAllBookmarks(out, chunks);
-					TRACE(L"%ls ~~~ %ls ~~~ %ls\n", out.c_str(), tokens[i][j].c_str(), tknWithout[i][j].c_str());
+					dhr(chaj::DOM::TxtRange_CollapseToEnd(pRange));
 				}
-				BSTR bNew = SysAllocString(out.c_str());
 				out.clear();
-				hr = pRange->pasteHTML(bNew);
-				assert(hr == S_OK);
-				SysFreeString(bNew);
 			}
 		}
 
-		hr = pRange->pasteHTML(bstrSentenceMarker);
-		assert(hr == S_OK);
+		dhr(pRange->pasteHTML(bstrSentenceMarker));
 
 		AppendTermRecordDivs(pBody);
-		AppendPopup_HtmlChangeStatus(pDoc, pBody);
+		AppendHtmlBlocks(pDoc, pBody);
 		/* specifically last after all elements placed */ AppendInfoBoxJavascript(pDoc, pBody);
 
 		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc);
 		assert(pSetupLink);
-		hr = pSetupLink->click();
-		assert(SUCCEEDED(hr));
+		dhr(pSetupLink->click());
 		pSetupLink->Release();
 
-		SysFreeString(bstrHowEndToStart);
 		SysFreeString(bstrSentenceMarker);
 	}
 	void ParsePage(IHTMLDocument2* pDoc)
@@ -3685,9 +3762,9 @@ L"}"
 	{
 		wstring result;
 
-		for(int i = 0; i < ts.size(); ++i)
+		for(vector<Token_Sentence>::size_type i = 0; i < ts.size(); ++i)
 		{
-			for(int j = 0; j < ts[i].size(); ++j)
+			for(vector<Token_Word>::size_type j = 0; j < ts[i].size(); ++j)
 			{
 				result.append(ts[i][j]);
 			}
@@ -3816,7 +3893,7 @@ L"}"
 	}
 	static void DeleteHandles()
 	{
-		for (int i = 0; i < vDelete.size(); ++i)
+		for (vector<HANDLE>::size_type i = 0; i < vDelete.size(); ++i)
 			DeleteObject(vDelete[i]);
 		vDelete.clear();
 	}
@@ -3850,162 +3927,162 @@ L"}"
 
 		return static_cast<INT_PTR>(0);
 	}
-	static INT_PTR CALLBACK DlgProc_ChangeStatus(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
-	{
-		switch(uMsg)
-		{
-			case WM_INITDIALOG:
-			{
-				HBITMAP hBmp;
-				hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS1));
-				vDelete.push_back(hBmp);
-				SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON1),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
-				hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS2));
-				vDelete.push_back(hBmp);
-				SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON2),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
-				hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS3));
-				vDelete.push_back(hBmp);
-				SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON3),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
-				hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS4));
-				vDelete.push_back(hBmp);
-				SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON4),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
-				hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS5));
-				vDelete.push_back(hBmp);
-				SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON5),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
-				hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS0));
-				vDelete.push_back(hBmp);
-				SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON6),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
-				hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS99));
-				vDelete.push_back(hBmp);
-				SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON7),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
-				hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS98));
-				vDelete.push_back(hBmp);
-				SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON8),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
-				
-				if (lParam)
-				{
-					MainDlgStruct* pMDS = reinterpret_cast<MainDlgStruct*>(lParam);
-					vector<wstring>& vTerms = pMDS->Terms;
-					if (vTerms.size() > 0)
-					{
-						for (int i = 0; i < vTerms.size(); ++i)
-						{
-							SendMessageW(GetDlgItem(hwndDlg, IDC_COMBO1), CB_ADDSTRING, NULL, reinterpret_cast<LPARAM>(vTerms[i].c_str()));
-						}
+	//static INT_PTR CALLBACK DlgProc_ChangeStatus(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+	//{
+	//	switch(uMsg)
+	//	{
+	//		case WM_INITDIALOG:
+	//		{
+	//			HBITMAP hBmp;
+	//			hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS1));
+	//			vDelete.push_back(hBmp);
+	//			SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON1),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
+	//			hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS2));
+	//			vDelete.push_back(hBmp);
+	//			SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON2),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
+	//			hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS3));
+	//			vDelete.push_back(hBmp);
+	//			SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON3),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
+	//			hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS4));
+	//			vDelete.push_back(hBmp);
+	//			SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON4),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
+	//			hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS5));
+	//			vDelete.push_back(hBmp);
+	//			SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON5),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
+	//			hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS0));
+	//			vDelete.push_back(hBmp);
+	//			SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON6),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
+	//			hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS99));
+	//			vDelete.push_back(hBmp);
+	//			SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON7),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
+	//			hBmp = LoadBitmap(hInstance, MAKEINTRESOURCE(IDB_STATUS98));
+	//			vDelete.push_back(hBmp);
+	//			SendMessage(GetDlgItem(hwndDlg, IDC_BUTTON8),BM_SETIMAGE,(WPARAM)IMAGE_BITMAP,(LPARAM)hBmp);
+	//			
+	//			if (lParam)
+	//			{
+	//				MainDlgStruct* pMDS = reinterpret_cast<MainDlgStruct*>(lParam);
+	//				vector<wstring>& vTerms = pMDS->Terms;
+	//				if (vTerms.size() > 0)
+	//				{
+	//					for (int i = 0; i < vTerms.size(); ++i)
+	//					{
+	//						SendMessageW(GetDlgItem(hwndDlg, IDC_COMBO1), CB_ADDSTRING, NULL, reinterpret_cast<LPARAM>(vTerms[i].c_str()));
+	//					}
 
-						SendMessage(GetDlgItem(hwndDlg, IDC_COMBO1), CB_SETCURSEL, (WPARAM)0, (LPARAM)0);
-					}
-				}
-				return (INT_PTR) TRUE;
-			}
-			case WM_COMMAND:
-			{
-				switch(HIWORD(wParam))
-				{
-					case BN_CLICKED:
-					{
-						DlgResult* pDR;
+	//					SendMessage(GetDlgItem(hwndDlg, IDC_COMBO1), CB_SETCURSEL, (WPARAM)0, (LPARAM)0);
+	//				}
+	//			}
+	//			return (INT_PTR) TRUE;
+	//		}
+	//		case WM_COMMAND:
+	//		{
+	//			switch(HIWORD(wParam))
+	//			{
+	//				case BN_CLICKED:
+	//				{
+	//					DlgResult* pDR;
 
-						int wp = LOWORD(wParam);
-						if (wp == IDC_STATIC_LINK)
-						{
-							DeleteHandles();
-							pDR = new DlgResult;
-							pDR->nStatus = 100;
-							EndDialog(hwndDlg, (INT_PTR)pDR);
-							break;
-						}
-						if (wp == IDC_BUTTON1 || wp == IDC_BUTTON2 || wp == IDC_BUTTON3 || wp == IDC_BUTTON4 || wp == IDC_BUTTON5 || wp == IDC_BUTTON6 || wp == IDC_BUTTON7 || wp == IDC_BUTTON8)
-						{
-							wchar_t wszEntry[LWT_MAXWORDLEN+1];
-							int nCurSel = (int)SendMessage(GetDlgItem(hwndDlg, IDC_COMBO1), CB_GETCURSEL, 0, 0);
-							SendMessage(GetDlgItem(hwndDlg, IDC_COMBO1), CB_GETLBTEXT, (WPARAM)nCurSel, reinterpret_cast<LPARAM>(wszEntry));
-							pDR = new DlgResult;
-							pDR->wstrTerm = wszEntry;		
-						}
+	//					int wp = LOWORD(wParam);
+	//					if (wp == IDC_STATIC_LINK)
+	//					{
+	//						DeleteHandles();
+	//						pDR = new DlgResult;
+	//						pDR->nStatus = 100;
+	//						EndDialog(hwndDlg, (INT_PTR)pDR);
+	//						break;
+	//					}
+	//					if (wp == IDC_BUTTON1 || wp == IDC_BUTTON2 || wp == IDC_BUTTON3 || wp == IDC_BUTTON4 || wp == IDC_BUTTON5 || wp == IDC_BUTTON6 || wp == IDC_BUTTON7 || wp == IDC_BUTTON8)
+	//					{
+	//						wchar_t wszEntry[LWT_MAXWORDLEN+1];
+	//						int nCurSel = (int)SendMessage(GetDlgItem(hwndDlg, IDC_COMBO1), CB_GETCURSEL, 0, 0);
+	//						SendMessage(GetDlgItem(hwndDlg, IDC_COMBO1), CB_GETLBTEXT, (WPARAM)nCurSel, reinterpret_cast<LPARAM>(wszEntry));
+	//						pDR = new DlgResult;
+	//						pDR->wstrTerm = wszEntry;		
+	//					}
 
-						switch(LOWORD(wParam))
-						{
-							case IDC_BUTTON1:
-							{
-								
-								DeleteHandles();
-								pDR->nStatus = 1;
-								EndDialog(hwndDlg, (INT_PTR)pDR);
-								break;
-							}
-							case IDC_BUTTON2:
-							{
-								DeleteHandles();
-								pDR->nStatus = 2;
-								EndDialog(hwndDlg, (INT_PTR)pDR);
-								break;
-							}
-							case IDC_BUTTON3:
-							{
-								DeleteHandles();
-								pDR->nStatus = 3;
-								EndDialog(hwndDlg, (INT_PTR)pDR);
-								break;
-							}
-							case IDC_BUTTON4:
-							{
-								DeleteHandles();
-								pDR->nStatus = 4;
-								EndDialog(hwndDlg, (INT_PTR)pDR);
-								break;
-							}
-							case IDC_BUTTON5:
-							{
-								DeleteHandles();
-								pDR->nStatus = 5;
-								EndDialog(hwndDlg, (INT_PTR)pDR);
-								break;
-							}
-							case IDC_BUTTON6:
-							{
-								DeleteHandles();
-								pDR->nStatus = 0;
-								EndDialog(hwndDlg, (INT_PTR)pDR);
-								break;
-							}
-							case IDC_BUTTON7:
-							{
-								DeleteHandles();
-								pDR->nStatus = 99;
-								EndDialog(hwndDlg, (INT_PTR)pDR);
-								break;
-							}
-							case IDC_BUTTON8:
-							{
-								DeleteHandles();
-								pDR->nStatus = 98;
-								EndDialog(hwndDlg, (INT_PTR)pDR);
-								break;
-							}
-						}
-					}
-					case CBN_SELCHANGE:
-					{
-						wchar_t wszEntry[LWT_MAXWORDLEN+1];
-						int nCurSel = (int)SendMessage(reinterpret_cast<HWND>(lParam), CB_GETCURSEL, 0, 0);
-						SendMessage(reinterpret_cast<HWND>(lParam), CB_GETLBTEXT, (WPARAM)nCurSel, reinterpret_cast<LPARAM>(wszEntry));
-						SetWindowText(GetDlgItem(hwndDlg, IDC_EDIT1), wszEntry);
-						break;
-					}
-				}
-				return 0;
-			}
-			case WM_CLOSE:
-			{
-				DeleteHandles();
-				DlgResult* pDR = new DlgResult;
-				pDR->nStatus = 100;
-				EndDialog(hwndDlg, (INT_PTR)pDR);
-			}
-		}
-		return (INT_PTR) FALSE;
-	}
+	//					switch(LOWORD(wParam))
+	//					{
+	//						case IDC_BUTTON1:
+	//						{
+	//							
+	//							DeleteHandles();
+	//							pDR->nStatus = 1;
+	//							EndDialog(hwndDlg, (INT_PTR)pDR);
+	//							break;
+	//						}
+	//						case IDC_BUTTON2:
+	//						{
+	//							DeleteHandles();
+	//							pDR->nStatus = 2;
+	//							EndDialog(hwndDlg, (INT_PTR)pDR);
+	//							break;
+	//						}
+	//						case IDC_BUTTON3:
+	//						{
+	//							DeleteHandles();
+	//							pDR->nStatus = 3;
+	//							EndDialog(hwndDlg, (INT_PTR)pDR);
+	//							break;
+	//						}
+	//						case IDC_BUTTON4:
+	//						{
+	//							DeleteHandles();
+	//							pDR->nStatus = 4;
+	//							EndDialog(hwndDlg, (INT_PTR)pDR);
+	//							break;
+	//						}
+	//						case IDC_BUTTON5:
+	//						{
+	//							DeleteHandles();
+	//							pDR->nStatus = 5;
+	//							EndDialog(hwndDlg, (INT_PTR)pDR);
+	//							break;
+	//						}
+	//						case IDC_BUTTON6:
+	//						{
+	//							DeleteHandles();
+	//							pDR->nStatus = 0;
+	//							EndDialog(hwndDlg, (INT_PTR)pDR);
+	//							break;
+	//						}
+	//						case IDC_BUTTON7:
+	//						{
+	//							DeleteHandles();
+	//							pDR->nStatus = 99;
+	//							EndDialog(hwndDlg, (INT_PTR)pDR);
+	//							break;
+	//						}
+	//						case IDC_BUTTON8:
+	//						{
+	//							DeleteHandles();
+	//							pDR->nStatus = 98;
+	//							EndDialog(hwndDlg, (INT_PTR)pDR);
+	//							break;
+	//						}
+	//					}
+	//				}
+	//				case CBN_SELCHANGE:
+	//				{
+	//					wchar_t wszEntry[LWT_MAXWORDLEN+1];
+	//					int nCurSel = (int)SendMessage(reinterpret_cast<HWND>(lParam), CB_GETCURSEL, 0, 0);
+	//					SendMessage(reinterpret_cast<HWND>(lParam), CB_GETLBTEXT, (WPARAM)nCurSel, reinterpret_cast<LPARAM>(wszEntry));
+	//					SetWindowText(GetDlgItem(hwndDlg, IDC_EDIT1), wszEntry);
+	//					break;
+	//				}
+	//			}
+	//			return 0;
+	//		}
+	//		case WM_CLOSE:
+	//		{
+	//			DeleteHandles();
+	//			DlgResult* pDR = new DlgResult;
+	//			pDR->nStatus = 100;
+	//			EndDialog(hwndDlg, (INT_PTR)pDR);
+	//		}
+	//	}
+	//	return (INT_PTR) FALSE;
+	//}
 	bool IsMultiwordTerm(const wstring& wTerm)
 	{
 		if (bWithSpaces == false && wTerm.size() > 1)
@@ -4233,6 +4310,34 @@ L"}"
 		//	delete pDR;
 		//}
 	}
+	wstring GetInfoTrans(IHTMLDocument2* pDoc)
+	{
+		IHTMLElement* pNewTrans = GetElementFromId(L"lwtshowtrans", pDoc);
+		assert(pNewTrans);
+
+		_bstr_t bNewTrans;
+		dhr(pNewTrans->get_innerText(bNewTrans.GetAddress()));
+		wstring wNewTrans(bNewTrans);
+
+		pNewTrans->Release();
+
+		wstring_replaceAll(wNewTrans, L"\r", L"");
+		return wNewTrans;
+	}
+	wstring GetInfoRom(IHTMLDocument2* pDoc)
+	{
+		IHTMLElement* pNewRom = GetElementFromId(L"lwtshowrom", pDoc);
+		assert(pNewRom);
+
+		_bstr_t bNewRom;
+		dhr(pNewRom->get_innerText(bNewRom.GetAddress()));
+		wstring wNewRom(bNewRom);
+
+		pNewRom->Release();
+
+		wstring_replaceAll(wNewRom, L"\r", L"");
+		return wNewRom;
+	}
 	void HandleClick()
 	{
 		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser);
@@ -4246,120 +4351,78 @@ L"}"
 		}
 
 		IHTMLElement* pElement = GetClickedElementFromEvent(pEvent, pDoc);
-		if (!pElement)
+		if (pElement)
 		{
-			pEvent->Release();
-			pDoc->Release();
-			return;
-		}
-
-		wstring wStatChange = GetAttributeValue(pElement, L"lwtstatchange");
-		if (wStatChange.size())
-		{
-			pEvent->Release();
-			IHTMLElement* pLast = GetElementFromId(L"lwtlasthovered", pDoc);
-			wstring wLast = GetAttributeValue(pLast, L"lwtterm");
-			assert(wLast != L"");
-
-			wstring wCurStat = GetAttributeValue(pLast, L"lwtstat");
-			wstring wNewStat = GetAttributeValue(pElement, L"lwtstat");
-			if (wCurStat == L"0")
-				AddNewTerm(wLast, wNewStat, pDoc);
-			else
-				ChangeTermStatus(wLast, wNewStat, pDoc);
-			
-			SetAttributeValue(pLast, L"lwtstat", wNewStat);
-
-			pLast->Release();
-			pElement->Release();
-			pDoc->Release();
-		}
-		else if (GetAttributeValue(pElement, L"lwttranschange").size())
-		{
-			pEvent->Release();
-
-			IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc);
-			assert(pCurInfoTerm);
-			wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
-			std::unordered_map<std::wstring, TermRecord>::iterator it = cache.find(wCurInfoTerm);
-			if (wCurInfoTerm.size() > 0 && it != cache.end())
+			wstring wActionReq = GetAttributeValue(pElement, L"lwtAction");
+			wstring wStatChange = GetAttributeValue(pElement, L"lwtstatchange");
+			if (wStatChange.size())
 			{
-				BSTR bNewTrans;
-				IHTMLElement* pNewTrans = GetElementFromId(L"lwtshowtrans", pDoc);
-				assert(pNewTrans);
-				HRESULT hr = pNewTrans->get_innerText(&bNewTrans);
-				assert(SUCCEEDED(hr));
-				pNewTrans->Release();
-				wstring wNewTrans(bNewTrans);
-				SysFreeString(bNewTrans);
-				wstring_replaceAll(wNewTrans, L"\r", L"");
-				wstring wQuery = L"update words set WoTranslation = '";
-				wQuery += this->EscapeSQLQueryValue(wNewTrans);
-				wQuery.append(L"' where WoTextLC = '");
-				wQuery += wCurInfoTerm;
-				wQuery.append(L"' and WoLgID = ");
-				wQuery += this->wLgID;
-				
-				if (DoExecuteDirect(L"4067xhidjf", wQuery))
+				pEvent->Release();
+				IHTMLElement* pLast = GetElementFromId(L"lwtlasthovered", pDoc);
+				wstring wLast = GetAttributeValue(pLast, L"lwtterm");
+				assert(wLast != L"");
+
+				wstring wCurStat = GetAttributeValue(pLast, L"lwtstat");
+				wstring wNewStat = GetAttributeValue(pElement, L"lwtstat");
+				if (wCurStat == L"0")
+					AddNewTerm(wLast, wNewStat, pDoc);
+				else
+					ChangeTermStatus(wLast, wNewStat, pDoc);
+			
+				SetAttributeValue(pLast, L"lwtstat", wNewStat);
+
+				pLast->Release();
+			}
+			else if (wActionReq == L"lwtUpdateTermInfo")
+			{
+				pEvent->Release();
+
+				IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc);
+				assert(pCurInfoTerm);
+				wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
+				std::unordered_map<std::wstring, TermRecord>::iterator it = cache.find(wCurInfoTerm);
+				if (wCurInfoTerm.size() > 0 && it != cache.end())
 				{
-					it->second.wTranslation = wNewTrans;
-					wstring wCurTermId(L"lwt");
-					wCurTermId.append(to_wstring(it->second.uIdent));
-					IHTMLElement* pCurTermDivRec = GetElementFromId(wCurTermId, pDoc);
-					assert(pCurTermDivRec);
-					SetAttributeValue(pCurTermDivRec, L"lwttrans", wNewTrans);
-					pCurTermDivRec->Release();
+					wstring wNewTrans = GetInfoTrans(pDoc);
+					wstring wNewRom = GetInfoRom(pDoc);
+
+					wstring wQuery = L"update words set WoTranslation = '";
+					wQuery += this->EscapeSQLQueryValue(wNewTrans);
+					wQuery.append(L"', WoRomanization = '");
+					wQuery += this->EscapeSQLQueryValue(wNewRom);
+					wQuery.append(L"' where WoTextLC = '");
+					wQuery += wCurInfoTerm;
+					wQuery.append(L"' and WoLgID = ");
+					wQuery += this->wLgID;
+				
+					if (DoExecuteDirect(L"4067xhidjf", wQuery))
+					{
+						it->second.wTranslation = wNewTrans;
+						it->second.wRomanization = wNewRom;
+						wstring wCurTermId(L"lwt");
+						wCurTermId.append(to_wstring(it->second.uIdent));
+						IHTMLElement* pCurTermDivRec = GetElementFromId(wCurTermId, pDoc);
+						assert(pCurTermDivRec);
+						SetAttributeValue(pCurTermDivRec, L"lwttrans", wNewTrans);
+						SetAttributeValue(pCurTermDivRec, L"lwtrom", wNewRom);
+						pCurTermDivRec->Release();
+						SendLwtCommand(L"closeInfoEdit", pDoc);
+					}
+				}			
+				pCurInfoTerm->Release();
+			}
+			else if (wActionReq == L"changeLang")
+			{
+				wstring wNewLgID = GetAttributeValue(pElement, L"value");
+				if (wNewLgID.size())
+				{
+					this->wLgID = wNewLgID;
+					OnLanguageChange(false, pDoc);
 				}
 			}
-			
-			pCurInfoTerm->Release();
 			pElement->Release();
-			pDoc->Release();
-			return;
 		}
-		else if (GetAttributeValue(pElement, L"lwtromchange").size())
-		{
-			pEvent->Release();
-
-			IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc);
-			assert(pCurInfoTerm);
-			wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
-			std::unordered_map<std::wstring, TermRecord>::iterator it = cache.find(wCurInfoTerm);
-			if (wCurInfoTerm.size() > 0 && it != cache.end())
-			{
-				BSTR bNewRom;
-				IHTMLElement* pNewTrans = GetElementFromId(L"lwtshowrom", pDoc);
-				assert(pNewTrans);
-				HRESULT hr = pNewTrans->get_innerText(&bNewRom);
-				assert(SUCCEEDED(hr));
-				pNewTrans->Release();
-				wstring wNewRom(bNewRom);
-				SysFreeString(bNewRom);
-				wstring_replaceAll(wNewRom, L"\r", L"");
-				wstring wQuery = L"update words set WoRomanization = '";
-				wQuery += this->EscapeSQLQueryValue(wNewRom);
-				wQuery.append(L"' where WoTextLC = '");
-				wQuery += wCurInfoTerm;
-				wQuery.append(L"' and WoLgID = ");
-				wQuery += this->wLgID;
-				
-				if (DoExecuteDirect(L"4067xhidjf", wQuery))
-				{
-					it->second.wRomanization = wNewRom;
-					wstring wCurTermId(L"lwt");
-					wCurTermId.append(to_wstring(it->second.uIdent));
-					IHTMLElement* pCurTermDivRec = GetElementFromId(wCurTermId, pDoc);
-					assert(pCurTermDivRec);
-					SetAttributeValue(pCurTermDivRec, L"lwtrom", wNewRom);
-					pCurTermDivRec->Release();
-				}
-			}
-			
-			pCurInfoTerm->Release();
-			pElement->Release();
-			pDoc->Release();
-			return;
-		}
+		pDoc->Release();
 	}
 	IHTMLElement* GetHTMLElementFromDisp(IDispatch* pDispElement)
 	{
@@ -4461,6 +4524,10 @@ L"}"
 			HandleRightClick();
 			TRACE(L"Handled DISPID_HTMLDOCUMENTEVENTS_ONCONTEXTMENU");
 		}
+		//if (dispidMember == DISP_UPDATETERMINFO)
+		//{
+		//	mb(L"disp invoke through javascript reached!");
+		//}
 		//if (dispidMember == DISPID_DOWNLOADBEGIN)
 		//if (dispidMember == DISPID_DOWNLOADCOMPLETE)
 		//if (dispidMember == DISPID_NAVIGATECOMPLETE2)
@@ -4481,7 +4548,7 @@ L"}"
 				}
 
 				IHTMLDocument2* pDoc = NULL;
-				hr = pDisp->QueryInterface(IID_IHTMLDocument2, (void**)&pDoc);
+				hr = pDisp->QueryInterface(IID_IHTMLDocument2, reinterpret_cast<void**>(&pDoc));
 				pDisp->Release();
 				if (FAILED(hr))
 				{
@@ -4495,6 +4562,26 @@ L"}"
 		}
 		return S_OK;
 	}
+
+/* THIS IS POTENTIAL CODE FOR AFTER DOCUMENT COMPLETE */
+/* it would allow javascript to directly access bho, with native calls like window.lwtbho.docommand(); */
+
+//IHTMLWindow2* pWindow = nullptr;
+//IDispatchEx* pDispEx = nullptr;
+//IDispatch* pDispLwtBho = nullptr;
+//pDoc->get_parentWindow(&pWindow);
+//pWindow->QueryInterface(IID_IDispatchEx, reinterpret_cast<void**>(&pDispEx));
+//this->QueryInterface(IID_IDispatch, reinterpret_cast<void**>(&pDispLwtBho));
+//_bstr_t bBhoName(L"LwtBho");
+//DISPID dispid;
+//pDispEx->GetDispID(bBhoName, fdexNameEnsure, &dispid);
+//DISPPARAMS params;
+//VARIANT vPut; VariantInit(&vPut); vPut.vt = VT_DISPATCH; vPut.pdispVal = pDispLwtBho;
+//params.cArgs = 1;
+//params.cNamedArgs = 0;
+//params.rgdispidNamedArgs = NULL;
+//params.rgvarg = &vPut;
+//pDispEx->Invoke(dispid, IID_NULL, NULL, DISPATCH_PROPERTYPUTREF, &params, NULL, NULL, NULL);
 
 private:
 	/* member variables */
@@ -4518,20 +4605,22 @@ private:
 	mysqlpp::Connection conn;
 	tiodbc::connection tConn;
 	tiodbc::statement tStmt;
-	string LgID;
 	wstring wLgID;
-	tstring tLgID;
 	wstring WordChars;
 	wstring SentDelims;
 	wstring SentDelimExcepts;
 	wstring wstrDict1;
 	wstring wstrDict2;
 	wstring wstrGoogleTrans;
+	wstring wJavascript;
+	wstring wCss;
 	vector<wstring> chunks;
 	TokenStruct tokens, tknSansBookmarks, tknCanonical;
 	bool bWithSpaces;
 	_bstr_t bstrUrl;
 	LWTCache cache;
+	LWTCache* pCache;
+	unordered_map<wstring, LWTCache*> cacheMap;
 	// wregex
 	wregex_iterator rend;
 	wregex wWordSansBookmarksWrgx;

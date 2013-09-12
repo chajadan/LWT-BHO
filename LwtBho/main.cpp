@@ -2,12 +2,12 @@
 
 #ifndef _DEBUG
 	const CLSID BhoCLSID = {0xe72bb92,0x73d4,0x4bef,0xbc,0x8,0xfe,0x3b,0x96,0x85,0x93,0xa3};
-	#define BhoCLSIDs  _T("{0E72BB92-73D4-4BEF-BC08-FE3B968593A3}")
+	#define BhoCLSIDs  L"{0E72BB92-73D4-4BEF-BC08-FE3B968593A3}"
 	static const GUID CLSID_AddObject = 
 	{ 0xe72bb92, 0x73d4, 0x4bef, { 0xbc, 0x8, 0xfe, 0x3b, 0x96, 0x85, 0x93, 0xa3} };
 #else
 	const CLSID BhoCLSID = {0x2bd807b2,0xb9a5,0x44f3,0x9a,0x32,0x7a,0x59,0xb0,0xdb,0xc8,0x55};
-	#define BhoCLSIDs _T("{2BD807B2-B9A5-44F3-9A32-7A59B0DBC855}")
+	#define BhoCLSIDs L"{2BD807B2-B9A5-44F3-9A32-7A59B0DBC855}"
 	static const GUID CLSID_AddObject = 
 	{ 0x2bd807b2, 0xb9a5, 0x44f3, { 0x9a, 0x32, 0x7a, 0x59, 0xb0, 0xdb, 0xc8, 0x55 } };
 #endif
@@ -51,119 +51,89 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppvOut)
 
 STDAPI DllCanUnloadNow(void)
 {
-	return (gref>0)?S_FALSE:S_OK;
+	return (gref>0) ? S_FALSE : S_OK;
 }
 
-tstring GetThisDllPath()
+wstring GetDllPath()
 {
-	TCHAR szBuff[MAX_PATH] = _T("");
 #ifdef _DEBUG
-	tstring strMod = _T("LwtBho_d.dll");
+	wstring strMod = L"LwtBho_d.dll";
 #else
-	tstring strMod = _T("LwtBho.dll");
+	wstring strMod = L"LwtBho.dll";
 #endif
+
 	HMODULE hMod = GetModuleHandle(strMod.c_str());
 	if (!hMod)
-		return _T("");
+		return L"";
+
+	wchar_t szBuff[MAX_PATH] = L"";
 	DWORD dwRet = GetModuleFileName(hMod, (LPWSTR)szBuff, sizeof(szBuff));
 	if (!dwRet || GetLastError() == ERROR_INSUFFICIENT_BUFFER)
-		return _T("");
-	tstring strDllPath(szBuff);
-	return strDllPath;
+		return L"";
+
+	return wstring(szBuff);
 }
 
 HRESULT __stdcall DllRegisterServer(void)
 {
 	HKEY pKey;
 
-	tstring strDllPath = GetThisDllPath();
-	if (strDllPath.size() == 0)
-		return E_FAIL;
-
-	tstring t1 = _T("CLSID\\");
-	t1 += BhoCLSIDs;
-
-	tstring t2 = _T("Learning With Texts Extension");
+	wstring wDllPath = GetDllPath();
+	wstring wClsid = L"CLSID\\";
+	wstring wClsEntry = wClsid += BhoCLSIDs;
+	wstring wClsInproc = wClsEntry += L"\\InprocServer32";
+	wstring wBHOKey = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects\\";
+	wstring wAddonName = L"Learning With Texts Extension";
 #ifdef _DEBUG
-	t2 += _T(" (Debug)");
+		wAddonName += L" (Debug)";
 #endif
-
-	tstring t3 = _T("CLSID\\");
-	t3 += BhoCLSIDs;
-	t3 += _T("\\InprocServer32");
-
-	tstring t5 = _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects\\");
-	t5 += BhoCLSIDs;
+	wstring wRes = L"res://";	wRes += wDllPath;	wRes.append(L"/");	wRes.append(to_wstring(IDR_LWTJAVASCRIPT02));
 	
-	long l = RegCreateKeyEx(HKEY_CLASSES_ROOT, t1.c_str(), NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &pKey, NULL);
-	if (l != ERROR_SUCCESS)
-	{
-		TCHAR msg[500];
-		FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, (DWORD)l, NULL, msg, 499, NULL);
-		mb(msg, _T("123Caption"));
-	}
-	l = RegSetValueEx(pKey, NULL, NULL, REG_SZ, (BYTE*)t2.c_str(), t2.length()*sizeof(TCHAR)+2);
-	if (l != ERROR_SUCCESS)
-	{
-		TCHAR msg[500];
-		FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, (DWORD)l, NULL, msg, 499, NULL);
-		mb(msg, _T("124Caption"));
-	}
+	DWORD dwContexts = 0xFFFFFFFF;
 
-	l = RegCreateKeyEx(HKEY_CLASSES_ROOT, t3.c_str(), NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &pKey, NULL);
-	if (l != ERROR_SUCCESS)
-	{
-		TCHAR msg[500];
-		FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, (DWORD)l, NULL, msg, 499, NULL);
-		MessageBox(NULL, msg, _T("123Caption"), MB_OK);
-	}
+	if (wDllPath.size() == 0) return E_UNEXPECTED;
 
-	l = RegSetValueEx(pKey, NULL, NULL, REG_SZ, (BYTE*)strDllPath.c_str(), strDllPath.length()*sizeof(TCHAR)+2);
-	if (l != ERROR_SUCCESS)
-	{
-		TCHAR msg[500];
-		FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, (DWORD)l, NULL, msg, 499, NULL);
-		MessageBox(NULL, msg, _T("124Caption"), MB_OK);
-	}
+	chaj::util::CatchSentinel<long> cs(ERROR_SUCCESS, true);
+	cs += RegCreateKeyEx(HKEY_CURRENT_USER, L"Software\\Microsoft\\Internet Explorer\\MenuExt\\Lwt Settings\\", NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &pKey, NULL);
+	cs += RegSetValueEx(pKey, NULL, NULL, REG_SZ, (BYTE*)wRes.c_str(), wRes.length()*sizeof(wstring::value_type)+2);
+	cs += RegSetValueEx(pKey, L"Contexts", NULL, REG_DWORD, (BYTE*)&dwContexts, sizeof(DWORD));
+	cs += RegCreateKeyEx(HKEY_CLASSES_ROOT, wClsEntry.c_str(), NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &pKey, NULL);
+	cs += RegSetValueEx(pKey, NULL, NULL, REG_SZ, (BYTE*)wAddonName.c_str(), wAddonName.length()*sizeof(wstring::value_type)+2);
+	cs += RegCreateKeyEx(HKEY_CLASSES_ROOT, wClsInproc.c_str(), NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &pKey, NULL);
+	cs += RegSetValueEx(pKey, NULL, NULL, REG_SZ, (BYTE*)wDllPath.c_str(), wDllPath.length()*sizeof(wstring::value_type)+2);
+	cs += RegCreateKeyEx(HKEY_LOCAL_MACHINE, (wBHOKey += BhoCLSIDs).c_str(), NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &pKey, NULL);
 
-	l = RegCreateKeyEx(HKEY_LOCAL_MACHINE, t5.c_str(), NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &pKey, NULL);
-	if (l != ERROR_SUCCESS)
+	if (cs.Seen())
 	{
-		TCHAR msg[500];
-		FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, (DWORD)l, NULL, msg, 499, NULL);
-		MessageBox(NULL, msg, _T("123Caption"), MB_OK);
+		DllUnregisterServer();
+		PrintFormattedError(cs.LastException());
+		return S_FALSE;
 	}
-
-    return 1;
+	else
+		return S_OK;
 }
 
 HRESULT __stdcall DllUnregisterServer()
 {
-	long l;
+	wstring wClsid = L"CLSID\\";
+	wstring wClsEntry = wClsid += wstring(BhoCLSIDs); // CLSID\\{0E72BB92-73D4-4BEF-BC08-FE3B968593A3}
+	wstring wInproc = L"\\InprocServer32";
+	wstring wBHO = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects\\";
 
-	tstring t1 = _T("CLSID\\");
-	t1 += BhoCLSIDs;
+	chaj::util::CatchSentinel<long> cs(ERROR_SUCCESS, true);
+	cs += RegDeleteKeyEx(HKEY_LOCAL_MACHINE, (wBHO += wstring(BhoCLSIDs)).c_str(), KEY_WOW64_32KEY, NULL);
+	cs += RegDeleteKeyEx(HKEY_CURRENT_USER, L"Software\\Microsoft\\Internet Explorer\\MenuExt\\Lwt Settings\\", KEY_WOW64_32KEY, NULL);
+	cs += RegDeleteKeyEx(HKEY_CLASSES_ROOT, (wClsEntry += wInproc).c_str(), KEY_WOW64_32KEY, NULL);
+	cs += RegDeleteKeyEx(HKEY_CLASSES_ROOT, wClsEntry.c_str(), KEY_WOW64_32KEY, NULL);
 
-	tstring t3 = _T("CLSID\\");
-	t3 += BhoCLSIDs;
-	t3 += _T("\\InprocServer32");
-
-	tstring t5 = _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Browser Helper Objects\\");
-	t5 += BhoCLSIDs;
-
-	l = RegDeleteKeyEx(HKEY_CLASSES_ROOT, t3.c_str(), KEY_WOW64_32KEY, NULL);
-	if (l != ERROR_SUCCESS)
-		MessageBox(NULL, _T("Err1"), _T("c"), MB_OK);
-	l = RegDeleteKeyEx(HKEY_CLASSES_ROOT, t1.c_str(), KEY_WOW64_32KEY, NULL);
-	if (l != ERROR_SUCCESS)
-		MessageBox(NULL, _T("Err2"), _T("c"), MB_OK);
-	l = RegDeleteKeyEx(HKEY_LOCAL_MACHINE, t5.c_str(), KEY_WOW64_32KEY, NULL);
-	if (l != ERROR_SUCCESS)
-		MessageBox(NULL, _T("Err3"), _T("c"), MB_OK);
-
-    return l;
+	if (cs.Seen())
+	{
+		PrintFormattedError(cs.LastException());
+		return S_FALSE;
+	}
+	else
+		return S_OK;
 }
-
 
 extern "C" BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {

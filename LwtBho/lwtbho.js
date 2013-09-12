@@ -1,14 +1,32 @@
 function lwtSetup()
 {
-	document.getElementById('lwtIntroDiv').style.height = document.getElementById('lwtterminfo').offsetHeight + 'px';
+	var panelHeight = 50;
+	document.getElementById('lwtIntroDiv').style.height = panelHeight + 'px';
+	document.getElementById('lwtSettings').style.height = '100px';
 	window.onscroll = moveInfoOnScroll;
 	document.attachEvent('onkeydown', lwtkeypress);
+	window.popupInfo = document.getElementById('lwtPopupInfo');
+	window.termInfo = document.getElementById('lwtterminfo');
+	window.bhoCommand = document.getElementById('lwtBhoCommand');
+	window.lastHovered = document.getElementById('lwtlasthovered');
+	window.popupTrans = document.getElementById('lwtPopupTrans');
+	window.popupRom = document.getElementById('lwtPopupRom');
+	window.inlinePopup = document.getElementById('lwtinlinestat');
+	window.inlinePopupEndMW = document.getElementById('lwtInlineMWEndPopup');
+	window.dict1 = document.getElementById('lwtextrapdict1');
+	window.dict1Link = document.getElementById('lwtdict1').getAttribute('src');
+	window.dict2 = document.getElementById('lwtextrapdict2');
+	window.dict2Link = document.getElementById('lwtdict2').getAttribute('src');
+	window.googleTrans = document.getElementById('lwtextrapgoogletrans');
+	window.googleTransLink = document.getElementById('lwtgoogletrans').getAttribute('src');
+	window.popup1Transparent = document.getElementById('lwtTermTrans');
+	window.popup2Transparent = document.getElementById('lwtTermTrans2');
 }
 
 function totalLeftOffset(element)
 {
 	var amount = 0;
-	while (element != null)
+	while (element !== null)
 	{
 		amount += element.offsetLeft;
 		element = element.offsetParent;
@@ -19,7 +37,7 @@ function totalLeftOffset(element)
 function totalTopOffset(element)
 {
 	var amount = 0;
-	while (element != null)
+	while (element !== null)
 	{
 		amount += element.offsetTop;
 		element = element.offsetParent;
@@ -29,7 +47,7 @@ function totalTopOffset(element)
 
 function fixPageXY(e)
 {
-	if (e.pageX == null && e.clientX != null )
+	if (e.pageX === null && e.clientX !== null )
 	{
 		var html = document.documentElement;
 		var body = document.body;
@@ -51,19 +69,21 @@ function getSelection()
 {
 	var elem = document.getElementById('lwtcursel');
 	if (elem === null)
+	{
 		return '';
+	}
 	return elem.getAttribute('lwtcursel');
 }
 
 function removeSelection()
 {
 	var elem = document.getElementById('lwtcursel');
-	if (elem == null)
+	if (elem === null)
 	{
 		return;
 	}
 	elem.id = '';
-	document.getElementById('lwtlasthovered').setAttribute('lwtcursel','');
+	window.lastHovered.setAttribute('lwtcursel','');
 	var curClass = elem.className;
 	var lastSpace = curClass.lastIndexOf(' ');
 	if (lastSpace >= 0)
@@ -107,7 +127,7 @@ function lwtdivmout(e)
 	fixPageXY(e);
 	var statbox = window.curStatbox;
 	var bVal = XYOnElement(e.pageX, e.pageY, statbox);
-	if (bVal == false)
+	if (bVal === false)
 	{
 		lwtmout(e);
 	}
@@ -126,6 +146,13 @@ function lwtmout(e)
 function CloseOpenDialogs()
 {
 	window.curStatbox.style.display = 'none';
+	window.popupInfo.style.display = 'none';
+}
+
+function CloseAllDialogs()
+{
+	CloseOpenDialogs();
+	window.termInfo.style.display = 'none';
 }
 
 function lwtkeypress()
@@ -162,7 +189,7 @@ function lwtkeypress()
 			document.getElementById('lwtsetstat0').click();
 			break;
 		case 27:
-			CloseOpenDialogs();
+			CloseAllDialogs();
 			break;
 	}
 }
@@ -174,18 +201,36 @@ function ExtrapLink(elem, linkForm, curTerm)
 	if (linkForm.indexOf('*') == 0)
 	{
 		extrap = linkForm.substr(1, linkForm.length);
-		extrap = extrap.replace('###', curTerm);
+		extrap = encodeURI(extrap.replace('###', curTerm));
 		elem.setAttribute('target', '_blank');
+		elem.setAttribute('onclick', '');
 	}
 	else if (linkForm.indexOf('###') >= 0)
 	{
-		extrap = linkForm.replace('###', curTerm);
+		extrap = encodeURI(linkForm.replace('###', curTerm));
 		elem.setAttribute('target', 'lwtiframe');
+		elem.setAttribute('onclick', 'lwtStartEdit();');
 	}
 	elem.setAttribute('href', extrap);
 }
 
-function moveInfoOnScroll(){document.getElementById('lwtterminfo').style.top = window.pageYOffset + 'px';}
+function SetFloatPositions()
+{
+	if (window.termInfo.style.display != 'none')
+	{
+		window.termInfo.style.top = window.pageYOffset + 'px';
+		window.popupInfo.style.top = (window.termInfo.offsetHeight + window.pageYOffset) + 'px';
+	}
+	else
+	{
+		window.popupInfo.style.top = window.pageYOffset + 'px';
+	}
+}
+
+function moveInfoOnScroll()
+{
+	SetFloatPositions();
+}
 
 function lwtmover(whichid, e, origin)
 {
@@ -194,8 +239,11 @@ function lwtmover(whichid, e, origin)
 	if (divRec == null) {alert('could not locate term record');return;}
 	window.curDivRec = divRec;
 	var curTerm = divRec.getAttribute('lwtterm');
-	var lastterm = document.getElementById('lwtlasthovered');
-	if (lastterm == null) {alert('could not loccated lasthovered field');}
+	window.popupTrans.textContent = divRec.getAttribute('lwttrans');
+	window.popupRom.textContent = divRec.getAttribute('lwtrom');
+	window.popupInfo.style.display = 'block';
+	var lastterm = window.lastHovered;
+	if (lastterm === null) {alert('could not loccated lasthovered field');}
 	lastterm.setAttribute('lwtterm', curTerm);
 	lastterm.setAttribute('lwtstat', divRec.getAttribute('lwtstat'));
 	setSelection(origin, lastterm, curTerm);
@@ -203,11 +251,25 @@ function lwtmover(whichid, e, origin)
 	lwtshowinlinestat(e, curTerm, origin);
 }
 
-function lwtshowinfo()
+function lwtStartEdit()
 {
+	document.getElementById('lwtcurinfoterm').setAttribute('lwtterm', window.curDivRec.getAttribute('lwtterm'));
 	document.getElementById('lwtshowtrans').textContent = window.curDivRec.getAttribute('lwttrans');
 	document.getElementById('lwtshowrom').textContent = window.curDivRec.getAttribute('lwtrom');
-	document.getElementById('lwtcurinfoterm').setAttribute('lwtterm', window.curDivRec.getAttribute('lwtterm'));
+	document.getElementById('lwtSetTermLabel').textContent = window.curDivRec.getAttribute('lwtterm');
+	showEditBox();
+}
+
+function closeEditBox()
+{
+	window.termInfo.style.display = 'none';
+	SetFloatPositions();
+}
+
+function showEditBox()
+{
+	window.termInfo.style.display = 'block';
+	SetFloatPositions();
 }
 
 function lwtshowinlinestat(e, curTerm, origin)
@@ -216,17 +278,17 @@ function lwtshowinlinestat(e, curTerm, origin)
 	var curStat = '';
 
 	if (window.mwTermBegin != null)
-		statbox = document.getElementById('lwtInlineMWEndPopup');
+		statbox = window.inlinePopupEndMW;
 	else
 	{
-		statbox = document.getElementById('lwtinlinestat');
+		statbox = window.inlinePopup;
 		curStat = document.getElementById('lwtcursel').className;
-		ExtrapLink(document.getElementById('lwtextrapdict1'), document.getElementById('lwtdict1').getAttribute('src'), curTerm);
-		ExtrapLink(document.getElementById('lwtextrapdict2'), document.getElementById('lwtdict2').getAttribute('src'), curTerm);
-		ExtrapLink(document.getElementById('lwtextrapgoogletrans'), document.getElementById('lwtgoogletrans').getAttribute('src'), curTerm);
+		ExtrapLink(window.dict1, window.dict1Link, curTerm);
+		ExtrapLink(window.dict2, window.dict2Link, curTerm);
+		ExtrapLink(window.googleTrans, window.googleTransLink, curTerm);
 	}
 
-	if (statbox == null)
+	if (statbox === null)
 	{
 		alert('could not locate inline status change popup');
 		return;
@@ -248,8 +310,8 @@ function lwtshowinlinestat(e, curTerm, origin)
 	if (tlo + statbox.offsetWidth > window.innerWidth)
 		tlo = tlo + posElem.offsetWidth - 81;
 	statbox.style.left = tlo + 'px';
-	document.getElementById('lwtTermTrans').style.height = posElem.offsetHeight + 'px';
-	document.getElementById('lwtTermTrans2').style.height = posElem.offsetHeight + 'px';
+	window.popup1Transparent.style.height = posElem.offsetHeight + 'px';
+	window.popup2Transparent.style.height = posElem.offsetHeight + 'px';
 	statbox.style.top = inlineTop + 'px';
 
 	var inlineBottom = inlineTop + statbox.offsetHeight;
@@ -257,7 +319,27 @@ function lwtshowinlinestat(e, curTerm, origin)
 	if (inlineBottom > window.pageYOffset + window.innerHeight)
 		statbox.scrollIntoView(false);
 }
-
+function lwtChangeLang(selectElem)
+{
+	var langDropdown = document.getElementById('lwtLangDropdown');
+	var curLangChoice = document.getElementById('lwtCurLangChoice');
+	curLangChoice.setAttribute('value', langDropdown.options[langDropdown.selectedIndex].value);
+	curLangChoice.click();
+}
+function lwtExecBhoCommand()
+{
+	var bhoCommand = window.bhoCommand;
+	var command = bhoCommand.getAttribute('value');
+	bhoCommand.setAttribute('value', '');
+	if (command == 'reloadPage')
+	{
+		location.replace(location.href);
+	}
+	else if (command == 'closeInfoEdit')
+	{
+		closeEditBox();
+	}
+}
 function traverseDomTree_NextNodeByTagName(elem, aTagName)
 {
 	if (elem.hasChildNodes() == true)
@@ -442,5 +524,4 @@ function getMWTermPartsAccrued(elem)
 	}
 
 	return partsAccrued;
-	
 }

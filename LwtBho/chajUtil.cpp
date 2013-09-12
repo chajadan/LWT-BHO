@@ -30,13 +30,6 @@ void mb(char* msg, char* cap, HWND hParent)
 }
 void PrintFormattedError(DWORD dwErr)
 {
-	//TCHAR* lpBuffer = NULL;
-	//FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER, NULL, GetLastError(), NULL, lpBuffer, 0, NULL);
-	//if (lpBuffer != NULL)
-	//{
-	//	mb(lpBuffer);
-	//	LocalFree(lpBuffer);
-	//}
 	_com_error error(dwErr);
 	LPCTSTR errorText = error.ErrorMessage();
 	mb(errorText);
