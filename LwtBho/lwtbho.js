@@ -2,7 +2,8 @@ function lwtSetup()
 {
 	var panelHeight = 50;
 	document.getElementById('lwtIntroDiv').style.height = panelHeight + 'px';
-	document.getElementById('lwtSettings').style.height = '100px';
+	window.settings = document.getElementById('lwtSettings');
+	settings.style.height = '100px';
 	window.onscroll = moveInfoOnScroll;
 	document.attachEvent('onkeydown', lwtkeypress);
 	window.popupInfo = document.getElementById('lwtPopupInfo');
@@ -153,6 +154,7 @@ function CloseAllDialogs()
 {
 	CloseOpenDialogs();
 	window.termInfo.style.display = 'none';
+	window.settings.style.display = 'none';
 }
 
 function lwtkeypress()
@@ -225,6 +227,8 @@ function SetFloatPositions()
 	{
 		window.popupInfo.style.top = window.pageYOffset + 'px';
 	}
+
+	window.settings.style.top = window.pageYOffset + 'px';
 }
 
 function moveInfoOnScroll()
