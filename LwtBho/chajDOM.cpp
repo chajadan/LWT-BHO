@@ -135,8 +135,11 @@ IHTMLBodyElement* chaj::DOM::GetBodyElementFromDoc(IHTMLDocument2* pDoc)
 {
 	IHTMLBodyElement* res = nullptr;
 	IHTMLElement* pBody = GetBodyAsElementFromDoc(pDoc);
-	pBody->QueryInterface(IID_IHTMLBodyElement, reinterpret_cast<void**>(&res));
-	pBody->Release();
+	if (pBody)
+	{
+		pBody->QueryInterface(IID_IHTMLBodyElement, reinterpret_cast<void**>(&res));
+		pBody->Release();
+	}
 	return res;
 }
 IHTMLElement* chaj::DOM::GetBodyAsElementFromDoc(IHTMLDocument2* pDoc)

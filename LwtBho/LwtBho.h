@@ -404,7 +404,7 @@ public:
 				hr = pRange->parentElement(&pMWPartSpan);
 				assert(SUCCEEDED(hr));
 
-				while (!chaj::DOM::GetAttributeValue(pMWPartSpan, L"lwtterm").size() && pMWPartSpan)
+				while (pMWPartSpan && !chaj::DOM::GetAttributeValue(pMWPartSpan, L"lwtterm").size())
 				{
 					IHTMLElement* pHigherParent = nullptr;
 					hr = pMWPartSpan->get_parentElement(&pHigherParent);
@@ -578,7 +578,10 @@ public:
 				wstring wCurTerm = GetAttributeValue(pParent, L"lwtTerm");
 				if (wTerm == wCurTerm)
 				{
-					HRESULT hr = RemoveNodeFromElement(pParent);
+					IHTMLElement* pSup = nullptr;
+					pParent->get_parentElement(&pSup);
+					assert(pSup);
+					HRESULT hr = RemoveNodeFromElement(pSup);
 					assert(SUCCEEDED(hr));
 #ifdef _DEBUG
 					if (FAILED(hr))
@@ -2515,7 +2518,7 @@ public:
 	{
 		out.append(L"<sup>");
 		AppendWithSegues(out, wWordCount, wTermCanonical, pRec);
-		out.append(L"</sup> ");
+		out.append(L" </sup>");
 	}
 	void AppendWithSegues(wstring& out, const wstring& wAsAppended, const wstring& wTermCanonical, const TermRecord* pRec)
 	{
@@ -3264,7 +3267,7 @@ public:
 			if (pos != wstring::npos)
 			{
 				out.replace(pos, replaceLen, replace);
-				++pos;
+				pos += replace.size();
 			}
 		}
 	}
@@ -3475,9 +3478,13 @@ public:
 		L"<span class=\"lwtStat4\" lwtstat=\"4\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" onclick=\"captureMW(52);\">4</span>"
 		L"<span class=\"lwtStat5\" lwtstat=\"5\" style=\"border:solid black 1px;display:inline-block;width:15px;text-align:center;\" onclick=\"captureMW(53);\">5</span><br />"
 		L"<span class=\"lwtStat99\" lwtstat=\"99\" style=\"border-left:solid black 1px;border-bottom: solid 1px #CCFFCC;display:inline-block;width:39px;text-align:center;\" onclick=\"captureMW(87);\" title=\"Well Known\">Well</span>"
-		L"<span class=\"lwtStat98\" lwtstat=\"98\" style=\"border-left:solid black 1px;border-right:solid black 1px;display:inline-block;width:39px;text-align:center;\" onclick=\"captureMW(73);\" title=\"Ignore\">Ignore</span><br />"
+		L"<span class=\"lwtStat98\" lwtstat=\"98\" style=\"border-left:solid black 1px;border-right:solid black 1px;display:inline-block;width:39px;text-align:center;\" onclick=\"captureMW(73);\" title=\"Ignore\">Igno</span><br />"
+		L"<span style=\"border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:26px;text-align:center;background-color:white;\" title=\"Dictionary 1\"><a id=\"lwtextrapdict1_2\" href=\"javascript:multiWordDict('D1');\">D1</a></span>"
+		L"<span style=\"border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:26px;text-align:center;background-color:white;\" title=\"Dictionary 2\"><a id=\"lwtextrapdict2_2\" href=\"javascript:multiWordDict('D2');\">D2</a></span>"
+		L"<span style=\"border-left:solid black 1px;border-bottom:solid black 1px;border-right:solid black 1px;display:inline-block;width:25px;text-align:center;background-color:white;\" title=\"Google Translate Term\"><a id=\"lwtextrapgoogletrans_2\" href=\"javascript:multiWordDict('DG');\">GT</a></span><br />"
 		L"<span style=\"border-left:solid black 1px;border-bottom:solid black 1px;border-right:solid black 1px;display:inline-block;width:79px;text-align:center;background-color:white;\" onclick=\"cancelMW();\" mwbuffer=\"true\" title=\"Abort Multiple Word Term\">Abort</span>"
 		L"</div>"
+		L"<div style=\"display:none;\"><a id=\"lwtMultiDictLink\" href=\"\"></a></div>"
 		);
 
 		out.append(
@@ -3515,6 +3522,8 @@ public:
 			L"</div>"
 			L"<div id=\"lwtCurLangChoice\" style=\"display:none;\" value=\"\" lwtAction=\"changeLang\"></div>"
 			L"<div id=\"lwtBhoCommand\" style=\"display:none;\" value=\"\" onclick=\"lwtExecBhoCommand()\"></div>"
+			L"<div id=\"lwtJSCommand\" style=\"display:none;\" lwtAction=\"\"></div>"
+			
 			);
 
 		out.append(L"<div id=\"lwtdict1\" style=\"display:none;\" src=\"");
@@ -4336,7 +4345,12 @@ public:
 				assert(pCurInfoTerm);
 				wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
 				std::unordered_map<std::wstring, TermRecord>::iterator it = cache.find(wCurInfoTerm);
-				if (wCurInfoTerm.size() > 0 && it != cache.end())
+				if (wCurInfoTerm.size() > 0 && (it == cache.end() || it->second.wStatus == L"0"))
+				{
+					AddNewTerm(wCurInfoTerm, L"1", pDoc);
+					it = cache.find(wCurInfoTerm);
+				}
+				if (wCurInfoTerm.size() > 0 && it != cache.end() && it->second.wStatus != L"0")
 				{
 					wstring wNewTrans = GetInfoTrans(pDoc);
 					wstring wNewRom = GetInfoRom(pDoc);
@@ -4365,6 +4379,28 @@ public:
 					}
 				}			
 				pCurInfoTerm->Release();
+			}
+			else if (wActionReq == L"FillMWTerm")
+			{
+				IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc);
+				assert(pCurInfoTerm);
+				wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
+				pCurInfoTerm->Release();
+				cache_cit it = cache.cfind(wCurInfoTerm);
+				if (it != cache.cend())
+				{
+					IHTMLElement* pEl = GetElementFromId(L"lwtshowtrans", pDoc);
+					assert(pEl);
+					chaj::DOM::SetElementInnerText(pEl, it->second.wTranslation);
+					pEl->Release();
+					pEl = GetElementFromId(L"lwtshowrom", pDoc);
+					assert(pEl);
+					chaj::DOM::SetElementInnerText(pEl, it->second.wRomanization);
+				}
+				IHTMLElement* pJSCommand = GetElementFromId(L"lwtJSCommand", pDoc);
+				assert(pCurInfoTerm);
+				chaj::DOM::SetAttributeValue(pJSCommand, L"lwtAction", L"");
+				pJSCommand->Release();
 			}
 			else if (wActionReq == L"changeLang")
 			{

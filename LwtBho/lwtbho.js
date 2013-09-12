@@ -15,13 +15,18 @@ function lwtSetup()
 	window.inlinePopup = document.getElementById('lwtinlinestat');
 	window.inlinePopupEndMW = document.getElementById('lwtInlineMWEndPopup');
 	window.dict1 = document.getElementById('lwtextrapdict1');
+	window.dict1_2 = document.getElementById('lwtextrapdict1_2');
 	window.dict1Link = document.getElementById('lwtdict1').getAttribute('src');
 	window.dict2 = document.getElementById('lwtextrapdict2');
+	window.dict2_2 = document.getElementById('lwtextrapdict2_2');
 	window.dict2Link = document.getElementById('lwtdict2').getAttribute('src');
 	window.googleTrans = document.getElementById('lwtextrapgoogletrans');
+	window.googleTrans_2 = document.getElementById('lwtextrapgoogletrans_2');
 	window.googleTransLink = document.getElementById('lwtgoogletrans').getAttribute('src');
+	window.multiDictLink = document.getElementById('lwtMultiDictLink');
 	window.popup1Transparent = document.getElementById('lwtTermTrans');
 	window.popup2Transparent = document.getElementById('lwtTermTrans2');
+	window.curInfoTerm = document.getElementById('lwtcurinfoterm');
 }
 
 function totalLeftOffset(element)
@@ -196,22 +201,68 @@ function lwtkeypress()
 	}
 }
 
+function multiWordDict(dict)
+{
+	window.multiDictLink.setAttribute('href', '');
+	var newTerm = getChosenMWTerm(document.getElementById('lwtcursel'));
+	if (newTerm === '')
+	{
+		return;
+	}
+	else if (dict == 'D1')
+	{
+		ExtrapLink(window.multiDictLink, window.dict1Link, newTerm);
+	}
+	else if (dict == 'D2')
+	{
+		ExtrapLink(window.multiDictLink, window.dict2Link, newTerm);
+	}
+	else if (dict == 'DG')
+	{
+		ExtrapLink(window.multiDictLink, window.googleTransLink, newTerm);
+	}
+	else
+	{
+		return;
+	}
+
+	window.curInfoTerm.setAttribute('lwtterm', newTerm);
+	document.getElementById('lwtshowtrans').textContent = '';
+	document.getElementById('lwtshowrom').textContent = '';
+	document.getElementById('lwtSetTermLabel').textContent = newTerm;
+	showEditBox();
+cancelMW();
+	window.multiDictLink.click();
+	lwtJSCommand('FillMWTerm');
+}
+
+function lwtJSCommand(command)
+{
+	var cmd = document.getElementById('lwtJSCommand');
+	cmd.setAttribute('lwtAction', command);
+	cmd.click();
+}
+
+
 function ExtrapLink(elem, linkForm, curTerm)
 {
 	if (elem == null) {return;}
 	var extrap = 'javascript:void(0);';
+	elem.setAttribute('onclick', '');
 	if (linkForm.indexOf('*') == 0)
 	{
 		extrap = linkForm.substr(1, linkForm.length);
 		extrap = encodeURI(extrap.replace('###', curTerm));
 		elem.setAttribute('target', '_blank');
-		elem.setAttribute('onclick', '');
 	}
 	else if (linkForm.indexOf('###') >= 0)
 	{
 		extrap = encodeURI(linkForm.replace('###', curTerm));
 		elem.setAttribute('target', 'lwtiframe');
-		elem.setAttribute('onclick', 'lwtStartEdit();');
+		if (window.mwTermBegin == null)
+		{
+			elem.setAttribute('onclick', 'lwtStartEdit();');
+		}
 	}
 	elem.setAttribute('href', extrap);
 }
@@ -243,9 +294,14 @@ function lwtmover(whichid, e, origin)
 	if (divRec == null) {alert('could not locate term record');return;}
 	window.curDivRec = divRec;
 	var curTerm = divRec.getAttribute('lwtterm');
-	window.popupTrans.textContent = divRec.getAttribute('lwttrans');
-	window.popupRom.textContent = divRec.getAttribute('lwtrom');
-	window.popupInfo.style.display = 'block';
+	var curTermTrans = divRec.getAttribute('lwttrans');
+	var curTermRom = divRec.getAttribute('lwtrom');
+	window.popupTrans.textContent = curTermTrans;
+	window.popupRom.textContent = curTermRom;
+	if (curTermTrans.length + curTermRom.length > 0)
+	{
+		window.popupInfo.style.display = 'block';
+	}
 	var lastterm = window.lastHovered;
 	if (lastterm === null) {alert('could not loccated lasthovered field');}
 	lastterm.setAttribute('lwtterm', curTerm);
@@ -257,11 +313,12 @@ function lwtmover(whichid, e, origin)
 
 function lwtStartEdit()
 {
-	document.getElementById('lwtcurinfoterm').setAttribute('lwtterm', window.curDivRec.getAttribute('lwtterm'));
+	window.curInfoTerm.setAttribute('lwtterm', window.curDivRec.getAttribute('lwtterm'));
 	document.getElementById('lwtshowtrans').textContent = window.curDivRec.getAttribute('lwttrans');
 	document.getElementById('lwtshowrom').textContent = window.curDivRec.getAttribute('lwtrom');
 	document.getElementById('lwtSetTermLabel').textContent = window.curDivRec.getAttribute('lwtterm');
 	showEditBox();
+	lwtcontextexit();
 }
 
 function closeEditBox()
