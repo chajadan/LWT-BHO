@@ -1,3 +1,11 @@
 <script language="JavaScript">
-	external.menuArguments.document.getElementById('lwtSettings').style.display = "block";
+  var settings = external.menuArguments.document.getElementById('lwtSettings');
+  if (setting !== null)
+  {
+    settings.style.display = "block";
+  }
+  else
+  {
+    alert('Learning With Text Extension does not seem to be running.');
+  }
 </script>

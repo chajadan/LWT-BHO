@@ -98,8 +98,8 @@
   <ItemGroup>
     <None Include="LwtBho.css" />
     <None Include="lwtbho.js" />
-    <None Include="lwtbho_wrapped.js" />
     <None Include="main.def" />
+    <None Include="Resource\settings.html" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="chajDOM.h" />
