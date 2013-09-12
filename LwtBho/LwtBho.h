@@ -1341,13 +1341,12 @@ public:
 			return false;
 	}
 
-	void GetVisibleBodyWithTagBookmarks(wstring& wVisibleBody /*out*/, vector<wstring>& chunks)
+	wstring GetVisibleBodyWithTagBookmarks(vector<wstring>& chunks)
 	{
-		wVisibleBody.clear(); //a single whole coherent result
-
+		wstring wVisibleBody;
 		bool bIsVisibleChunk; // must be properly set each loop iteration
 
-		for (vector<wstring>::size_type i = 0; i < chunks.size(); ++i)
+		for (decltype(chunks.size()) i = 0; i < chunks.size(); ++i)
 		{
 			bIsVisibleChunk = IsChunkVisible(chunks, i);
 
@@ -1361,6 +1360,8 @@ public:
 					wVisibleBody += wHiddenChunkBookmark + to_wstring(i) + wHiddenChunkBookmark;
 			}
 		}
+
+		return wVisibleBody;
 	}
 
 	void GetEntityMap(std::map<std::wstring,wchar_t>& entities)
@@ -2110,6 +2111,7 @@ public:
 	void GetBodyContent(wstring& wBody, IHTMLElement*& pBody, IHTMLDocument2* pDoc)
 	{
 		TRACE(L"%s", L"Calling GetBodyContent\n");
+		wBody = L"";
 		if (pBody != NULL || pDoc == NULL)
 			return;
 		
@@ -2161,8 +2163,10 @@ public:
 			mb(L"get_innerHTML gave an error", L"137werts");
 			return;
 		}
-		
-		wBody = to_wstring(bstrBodyContent.GetBSTR());
+
+		if (bstrBodyContent.length())
+			wBody = to_wstring(bstrBodyContent.GetBSTR());
+
 		TRACE(L"%s", L"Leaving GetBodyContent\n");
 	}
 	void PSTS_WordLevel_spaceless(TokenStruct& tokens, const wstring& in)
@@ -3353,7 +3357,7 @@ public:
 		for (vector<wstring>::size_type i = 0; i < chunks.size(); ++i)
 			ReplaceHTMLEntitiesWithChars(chunks[i]);
 	}
-	void NewParse(IHTMLDocument2* pDoc)
+	void ParsePage(IHTMLDocument2* pDoc)
 	{
 		IHTMLElement* pBody = NULL;
 		wstring wsBodyContent = L"";
@@ -3364,11 +3368,9 @@ public:
 		// separate html into chunks, each chunk fully one of intra-tag content or extra-tag content:  |<p>|This is |<u>|such|</u>| a good book!|</p>|
 		chunks.clear();
 		PopulateChunks(chunks, wsBodyContent);
-		//SplitChunksByScript(chunks, wsBodyContent);
 
 		// condense non visible data down to placeholders
-		wstring wVisibleBody;
-		GetVisibleBodyWithTagBookmarks(wVisibleBody, chunks);
+		wstring wVisibleBody = GetVisibleBodyWithTagBookmarks(chunks);
 
 		// handle html entities such as &lt; and &#62, so that word parsing parses what you see and not how it's represented
 		// this is done after chunking so chunking has less issues with embedded '<' chars, and it's done
@@ -3711,59 +3713,6 @@ public:
 		pSetupLink->Release();
 
 		SysFreeString(bstrSentenceMarker);
-	}
-	void ParsePage(IHTMLDocument2* pDoc)
-	{
-		return NewParse(pDoc);
-		TRACE(L"%s", L"Calling ParsePage\n");
-		if (pDoc == NULL)
-			return;
-
-		IHTMLElement* pBody = NULL;
-		wstring wsBodyContent = L"";
-		GetBodyContent(wsBodyContent, pBody, pDoc);	
-		if (pBody == NULL)
-			return;
-
-		// separate html into chunks, each chunk fully one of intra-tag content or extra-tag content:  |<p>|This is |<u>|such|</u>| a good book!|</p>|
-		chunks.clear();
-		PopulateChunks(chunks, wsBodyContent);
-		//SplitChunksByScript(chunks, wsBodyContent);
-
-		// condense non visible data down to placeholders
-		wstring wVisibleBody;
-		GetVisibleBodyWithTagBookmarks(wVisibleBody, chunks);
-
-		// handle html entities such as &lt; and &#62, so that word parsing parses what you see and not how it's represented
-		// this is done after chunking so chunking has less issues with embedded '<' chars, and it's done
-		// after non-visible areas (like scripts) have been bookmarked to avoid altering programmatic features we don't see
-		// anyway
-		ReplaceHTMLEntitiesWithChars(wVisibleBody);
-
-		tokens.vSentences.clear();
-		tknSansBookmarks.vSentences.clear();
-		tknCanonical.vSentences.clear();
-		ParseIntoSentencesAsTokenStruct(tokens, wVisibleBody);
-		assert(TokensReassembledProperly(tokens, wVisibleBody));
-		GetTokensWithoutBookmarks(tknSansBookmarks, tokens);
-		GetTokensCanonical(tknCanonical, tknSansBookmarks);
-
-		UpdateCaches(tknCanonical);
-
-		wstring theNewsBodyContent(L"<style>span.lwtStat0 {background-color: #ADDFFF} span.lwtStat1 {background-color: #F5B8A9} span.lwtStat2 {background-color: #F5CCA9} span.lwtStat3 {background-color: #F5E1A9} span.lwtStat4 {background-color: #F5F3A9} span.lwtStat5 {background-color: #DDFFDD} span.lwtStat99 {background-color: #F8F8F8;border-bottom: solid 2px #CCFFCC} span.lwtStat98 {background-color: #F8F8F8;border-bottom: dashed 1px #000000}</style>");
-		
-		AppendAnnotatedContent_MaintainBookmarks(theNewsBodyContent, tokens, tknSansBookmarks, tknCanonical);
-
-		ReplaceNecessaryCharsWithHTMLEntities(theNewsBodyContent);
-
-		RestoreAllBookmarks(theNewsBodyContent, chunks);
-
-		// replace body text with added annotations
-		BSTR bNewsBodyContent = SysAllocStringLen(theNewsBodyContent.data(), theNewsBodyContent.size());
-		pBody->put_innerHTML(bNewsBodyContent);
-		SysFreeString(bNewsBodyContent);
-		pBody->Release();
-	TRACE(L"%s", L"Leaving ParsePage\n");
 	}
 	bool TokensReassembledProperly(const TokenStruct& ts, const wstring& orig)
 	{
