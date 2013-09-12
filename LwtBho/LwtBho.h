@@ -2149,9 +2149,8 @@ public:
 			mb("Error. Will not perceive mouse clicks on this page. Will try to annotate anyway.", "1000duwksm");
 
 		hr = pDoc->get_body(&pBody);
-		if (FAILED(hr))
+		if (!pBody || FAILED(hr))
 		{
-			mb(L"get_body gave an error", L"132asdfedds");
 			return;
 		}
 		
@@ -3733,40 +3732,40 @@ public:
 
 		if (pUnkSite == NULL || pSite != NULL)
 		{
+			if (pCP != NULL)
+			{
+				if (dwCookie != NULL)
+				{
+					hr = pCP->Unadvise(dwCookie);
+				}
+				pCP->Release();
+			}
 			if (pSite != NULL)
 				pSite->Release();
 			if (pBrowser != NULL)
 				pBrowser->Release();
 			if (pDispBrowser != NULL)
 				pDispBrowser->Release();
-			if (pCP != NULL)
-			{
-				if (dwCookie != NULL)
-				{
-					hr = pCP->Unadvise(dwCookie);
-					if (FAILED(hr))
-						mb("failure upon attempt to unadvise", "1484soideif");
-				}
-				pCP->Release();
-			}
 			if (pTW != NULL)
 				pTW->Release();
 			return S_OK;
 		}
 
 		pUnkSite->AddRef();
+		if (pCP != NULL)
+		{
+			if (dwCookie != NULL)
+			{
+				hr = pCP->Unadvise(dwCookie);
+			}	
+			pCP->Release();
+		}
 		if (pSite != NULL)
 			pSite->Release();
 		if (pBrowser != NULL)
 			pBrowser->Release();
 		if (pDispBrowser != NULL)
 			pDispBrowser->Release();
-		if (pCP != NULL)
-		{
-			if (dwCookie != NULL)
-				pCP->Unadvise(dwCookie);
-			pCP->Release();
-		}
 		pSite = pUnkSite;
 
 		hr = pUnkSite->QueryInterface(IID_IWebBrowser2, (void**)&pBrowser);
