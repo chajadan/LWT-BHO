@@ -1,8 +1,9 @@
 #include "chajUtil.h"
 #include <sstream>
-#include "tchar.h"
-#include "comdef.h"
+#include "comdef.h" // _com_error
 #include "Strsafe.h" // StringCbVPrintf
+
+using namespace std;
 
 HWND hMBParent = NULL;
 

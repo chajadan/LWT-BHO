@@ -45,16 +45,15 @@ const INT_PTR CTRL_FORCE_PARSE = static_cast<INT_PTR>(101);
 const INT_PTR CTRL_CHANGE_LANG = static_cast<INT_PTR>(102);
 const int MWSpanAltroSize = 7;
 const wstring wstrNewline(L"&#13;&#10;");
-DISPID DISP_UPDATETERMINFO = 5;
 
 #define nHiddenChunkOpenBookmarkLen 3
 #define LWT_MAXWORDLEN 255
-wstring wHiddenChunkBookmark(L"~-~");
-wstring wPTagBookmark(L"~P~");
-wstring wStatIntro(L"lwtStat");
-HINSTANCE hInstance;
-vector<HANDLE> vDelete;
-LONG gref=0;
+extern wstring wHiddenChunkBookmark;
+extern wstring wPTagBookmark;
+extern wstring wStatIntro;
+extern HINSTANCE hInstance;
+extern vector<HANDLE> vDelete;
+extern LONG gref;
 
 struct DlgResult
 {
@@ -113,86 +112,14 @@ private:
 	};
 
 public:
-	LwtBho() : conn(), tConn(), tStmt(), cache(L"null")
-	{
-#ifdef _DEBUG
-		mb("Here's your chance to attach debugger...");
-#endif
+	LwtBho();
+	~LwtBho();
 
-		pSite = NULL;
-		pBrowser = NULL;
-		pCP = NULL;
-		pHDEv = NULL;
-		pNI = NULL;
-		pTW = NULL;
-		pDispBrowser = NULL;
-		pCache = nullptr;
-
-		hBrowser = NULL;
-		dwCookie = NULL;
-		dwCookie2 = NULL;
-		bDocumentCompleted = false;
-		ref = 0;
-		wLgID = L"";
-		WordChars = L"";
-		SentDelims = L"";
-		SentDelimExcepts = L"";
-		bWithSpaces = true;
-		bstrUrl = "";
-
-		LoadJavascriptFile();
-		assert(this->wJavascript.size());
-		LoadCssFile();
-		assert(this->wCss.size());
-
-		InitializeWregexes();
-
-		pFilter = new chaj::DOM::DOMIteratorFilter(&FilterNodes_LWTTerm);
-		pFullFilter = new chaj::DOM::DOMIteratorFilter(&FilterNodes_LWTTermAndSent);
-
-		if (!tConn.connect(L"LWT", L"root", L""))
-	    {
-			mb(_T("Cannot connect to the Data Source"));
-			mb(tConn.last_error());
-			return;
-		}
-
-		if (!tStmt.execute_direct(tConn, _T("select StValue from settings where StKey = 'currentlanguage'")))
-		{
-			mb(_T("Cannot execute query!"));
-			mb(tConn.last_error());
-			return;
-		}
-		if (tStmt.fetch_next() == false)
-		{
-			mb(_T("Now rows returned. Expected db entry."));
-			mb(tConn.last_error());
-			tStmt.free_results();
-			return;
-		}
-		wLgID = tStmt.field(1).as_string();
-		tStmt.free_results();
-		OnLanguageChange(true, nullptr);
-	}
-	~LwtBho()
-	{
-		if (pFilter != NULL)
-			delete pFilter;
-	}
-	void LoadJavascriptFile()
-	{
-		HRSRC rc = ::FindResource(hInstance, MAKEINTRESOURCE(IDR_LWTJAVASCRIPT01),
-			MAKEINTRESOURCE(JAVASCRIPT));
-		HGLOBAL rcData = ::LoadResource(hInstance, rc);
-		DWORD size = ::SizeofResource(hInstance, rc);
-		wJavascript = to_wstring(static_cast<const char*>(::LockResource(rcData)));
-	}
 	void LoadCssFile()
 	{
 		HRSRC rc = ::FindResource(hInstance, MAKEINTRESOURCE(IDR_LWTCSS),
 			MAKEINTRESOURCE(CSS));
 		HGLOBAL rcData = ::LoadResource(hInstance, rc);
-		DWORD size = ::SizeofResource(hInstance, rc);
 		wCss = to_wstring(static_cast<const char*>(::LockResource(rcData)));
 	}
 	void test3()
@@ -217,37 +144,31 @@ public:
 	{
 		mb(errMsg, errCode);
 	}
-	bool DoExecute(const tstring& errCode)
+	bool DoExecute(const wstring& errCode)
 	{
 		bool success = tStmt.execute();
 		if (!success)
 			DoError(errCode, tStmt.last_error());
 		return success;
 	}
-	bool DoExecuteDirect(const tstring& errCode, const tstring& tSql)
+	bool DoExecuteDirect(const wstring& errCode, const wstring& tSql)
 	{
 		tStmt.free_results(); // just in case
 		bool success = tStmt.execute_direct(tConn, tSql);
 		if (!success)
 		{
-			mb("DoExecuteDirect did not succeed");
-			wstring werr = tConn.last_error();
-			DoError(errCode, werr);
+			wstring werr = tStmt.last_error();
+			TRACE(L"execute_direct error: %s %s", errCode.c_str(), werr.c_str());
 		}
-		return success;
-	}
-	bool DoPrepare(const tstring& errCode, const tstring& tSql)
-	{
-		bool success = tStmt.prepare(tConn, tSql);
-		if (!success)
-			DoError(errCode, tStmt.last_error());
 		return success;
 	}
 	void AddNewTerm(const wstring& wTerm, const wstring& wNewStatus, IHTMLDocument2* pDoc)
 	{
 		wstring wTermEscaped = EscapeSQLQueryValue(wTerm);
 		wstring wQuery;
-		wQuery.append(L"insert into words (WoLgID, WoText, WoTextLC, WoStatus, WoStatusChanged,  WoTodayScore, WoTomorrowScore, WoRandom) values (");
+		wQuery.append(L"insert into ");
+		wQuery.append(wTableSetPrefix);
+		wQuery.append(L"words (WoLgID, WoText, WoTextLC, WoStatus, WoStatusChanged,  WoTodayScore, WoTomorrowScore, WoRandom) values (");
 		wQuery.append(wLgID);
 		wQuery.append(L", '");
 		wQuery.append(wTermEscaped);
@@ -271,8 +192,8 @@ public:
 		}
 		else
 		{
-			unordered_map<wstring,TermRecord>::iterator it = cache.find(wTerm);
-			if (it != cache.end())
+			unordered_map<wstring,TermRecord>::iterator it = cache->find(wTerm);
+			if (it != cache->end())
 				ChangeTermStatus(wTerm, wNewStatus, pDoc);
 			else
 				mb(L"Unable to add term. This is a database related issue. Error code: 325nijok", wTerm);
@@ -281,7 +202,7 @@ public:
 	void AddNewMWSpans(const wstring& wTerm, const wstring& wNewStatus, IHTMLDocument2* pDoc)
 	{
 		return AddNewMWSpans3(wTerm, wNewStatus, pDoc);
-		HRESULT hr;
+
 		unsigned int uCount = WordsInTerm(wTerm);
 		VARIANT_BOOL vBool;
 		_bstr_t bFind(wTerm.c_str());
@@ -290,8 +211,8 @@ public:
 		long lVal;
 		
 		wstring out;
-		unordered_map<wstring,TermRecord>::const_iterator it = cache.cfind(wTerm);
-		assert(it != cache.cend());
+		unordered_map<wstring,TermRecord>::const_iterator it = cache->cfind(wTerm);
+		assert(it != cache->cend());
 
 		IHTMLElement* pBody = chaj::DOM::GetBodyAsElementFromDoc(pDoc);
 		assert(pBody);
@@ -366,8 +287,8 @@ public:
 		VARIANT_BOOL vBool;
 		_bstr_t bFind(wTerm.c_str());
 		wstring out;
-		unordered_map<wstring,TermRecord>::const_iterator it = cache.cfind(wTerm);
-		assert(it != cache.cend());
+		unordered_map<wstring,TermRecord>::const_iterator it = cache->cfind(wTerm);
+		assert(it != cache->cend());
 
 		IHTMLElement* pBody = chaj::DOM::GetBodyAsElementFromDoc(pDoc);
 		assert(pBody);
@@ -585,7 +506,7 @@ public:
 					assert(SUCCEEDED(hr));
 #ifdef _DEBUG
 					if (FAILED(hr))
-						TRACE(L"Unable to properly delete multiword span.");
+						TRACE(L"%s", L"Unable to properly delete multiword span.");
 #endif
 				}
 			}
@@ -627,7 +548,9 @@ public:
 	void RemoveTerm(IHTMLDocument2* pDoc, const wstring& wTerm)
 	{
 		wstring wQuery;
-		wQuery.append(L"delete from words where WoTextLC = '");
+		wQuery.append(L"delete from ");
+		wQuery.append(wTableSetPrefix);
+		wQuery.append(L"words where WoTextLC = '");
 		wQuery.append(wTerm);
 		wQuery.append(L"' and WoLgID = ");
 		wQuery.append(wLgID);
@@ -644,15 +567,15 @@ public:
 	}
 	void AlterCacheItemStatus(const wstring& wTerm, const wstring& wNewStatus)
 	{
-		unordered_map<wstring,TermRecord>::iterator it = cache.find(wTerm);
-		assert(it != cache.end());
+		unordered_map<wstring,TermRecord>::iterator it = cache->find(wTerm);
+		assert(it != cache->end());
 		(*it).second.wStatus = wNewStatus;
 	}
 	void InsertOrUpdateCacheItem(const wstring& wTerm, const wstring& wNewStatus)
 	{
-		unordered_map<wstring,TermRecord>::iterator it = cache.find(wTerm);
-		if (it == cache.end())
-			cache.insert(unordered_map<wstring,TermRecord>::value_type(wTerm, TermRecord(wNewStatus)));
+		cache_it it = cache->find(wTerm);
+		if (it == cache->end())
+			cache->insert(unordered_map<wstring,TermRecord>::value_type(wTerm, TermRecord(wNewStatus)));
 		else
 			(*it).second.wStatus = wNewStatus;
 	}
@@ -662,7 +585,9 @@ public:
 			return RemoveTerm(pDoc, wTerm);
 
 		wstring wQuery;
-		wQuery.append(L"update words set WoStatus = ");
+		wQuery.append(L"update ");
+		wQuery.append(wTableSetPrefix);
+		wQuery.append(L"words set WoStatus = ");
 		wQuery.append(wNewStatus);
 		wQuery.append(L", WoStatusChanged = Now(), WoTodayScore = CASE WHEN WoStatus > 5 THEN 100 ELSE (((POWER(2.4,WoStatus) + WoStatus - DATEDIFF(NOW(),WoStatusChanged) - 1) / WoStatus - 2.4) / 0.14325248) END, WoTomorrowScore = CASE WHEN WoStatus > 5 THEN 100 ELSE (((POWER(2.4,WoStatus) + WoStatus - DATEDIFF(NOW(),WoStatusChanged) - 2) / WoStatus - 2.4) / 0.14325248) END, WoRandom = RAND() where WoTextLC = '");
 		wQuery.append(wTerm);
@@ -997,23 +922,30 @@ public:
 		pBhoCommand->click();
 		pBhoCommand->Release();
 	}
-	void OnLanguageChange(bool bLoad, IHTMLDocument2* pDoc)
+	void OnTableSetChange(IHTMLDocument2* pDoc, bool bReload = true)
+	{
+		GetLgID();
+		OnLanguageChange(pDoc, bReload);
+	}
+	void OnLanguageChange(IHTMLDocument2* pDoc, bool bReload = true)
 	{
 		long lngLgID = wcstol(wLgID.c_str(), NULL, 10);
 
 		if (lngLgID == 0 || lngLgID == LONG_MAX || lngLgID == LONG_MIN)
-			return;
+			return bReload ? ReloadWebpage(pDoc) : void();
 		        
-		wstring wQuery = L"select LgRegexpWordCharacters, LgRegexpSplitSentences, COALESCE(LgExceptionsSplitSentences, ''), LgSplitEachChar, COALESCE(LgDict1URI, ''), COALESCE(LgDict2URI, ''), COALESCE(LgGoogleTranslateURI, '') from languages where LgID = ";
+		wstring wQuery = L"select LgRegexpWordCharacters, LgRegexpSplitSentences, COALESCE(LgExceptionsSplitSentences, ''), LgSplitEachChar, COALESCE(LgDict1URI, ''), COALESCE(LgDict2URI, ''), COALESCE(LgGoogleTranslateURI, '') from ";
+		wQuery += wTableSetPrefix;
+		wQuery.append(L"languages where LgID = ");
 		wQuery += wLgID;
 		if (!DoExecuteDirect(_T("235ywiehf"), wQuery))
-			return;
+			return bReload ? ReloadWebpage(pDoc) : void();
 
 		if (!tStmt.fetch_next())
 			mb("Could not retrieve Word Characters. 249ydhfu.");
 		else
 		{
-			WordChars += tStmt.field(1).as_string();
+			WordChars = tStmt.field(1).as_string();
 			SentDelims = tStmt.field(2).as_string();
 			SentDelimExcepts = RegexEscape(tStmt.field(3).as_string());
 			tStmt.field(4).as_string() == L"0" ? bWithSpaces = true : bWithSpaces = false;
@@ -1021,19 +953,18 @@ public:
 			wstrDict2 = tStmt.field(6).as_string();
 			wstrGoogleTrans = tStmt.field(7).as_string();
 			RegexEscape(SentDelimExcepts);
-			unordered_map<wstring,LWTCache*>::const_iterator it = cacheMap.find(wLgID);
+			auto it = cacheMap.find(wTableSetPrefix + wstring(L"~~sep~~") + wLgID);
 			if (it != cacheMap.end())
-				cache = *(it->second);
+				cache = it->second;
 			else
 			{
-				pCache = new LWTCache(wLgID);
-				cacheMap.insert(pair<wstring,LWTCache*>(wLgID, pCache));
-				cache = *pCache;
+				cache = new LWTCache(wLgID, wTableSetPrefix);
+				cacheMap.insert(pair<wstring,LWTCache*>(wTableSetPrefix + wstring(L"~~~sep~~~") + wLgID, cache));
 			}
 
-			if (!bLoad)
+			if (bReload)
 			{
-				SendLwtCommand(L"reloadPage", pDoc);
+				ReloadWebpage(pDoc);
 			}
 		}
 		tStmt.free_results();
@@ -1081,7 +1012,6 @@ public:
 	}
 	HRESULT STDMETHODCALLTYPE GetIDsOfNames(REFIID riid, OLECHAR FAR* FAR* rgszNames, unsigned int cNames, LCID lcid, DISPID FAR* rgDispId)
 	{
-		BSTR B;
 		return NOERROR;
 	}
 
@@ -1711,8 +1641,8 @@ public:
 	{
 		for (wstr_c_it itWord = vCandidateList.begin(), itWordEnd = vCandidateList.end(); itWord != itWordEnd; ++itWord)
 		{
-			unordered_map<wstring,TermRecord>::const_iterator it = cache.find(*itWord);
-			if (it == cache.end())
+			unordered_map<wstring,TermRecord>::const_iterator it = cache->find(*itWord);
+			if (it == cache->end())
 			{
 				//mb("not found");
 				vListUncached.push_back(*itWord);
@@ -1771,13 +1701,15 @@ public:
 					if (k > j)
 						lstItems.push_back(vTerm);
 
-					//assert(cache.count(tokens[i][j]) == 1);
+					//assert(cache->count(tokens[i][j]) == 1);
 					//TermRecord rec = cache[tokens[i][j]];
 					//if (rec.nTermsBeyond == 0)
 					//	break;
 				}
 			}
 		}
+		lstItems.sort();
+		lstItems.unique();
 	}
 	// the only if means only if the potential term might be in the LWT words table
 	//void ParseSentencesToMWTermsOnlyIf(const TokenStruct& tknCanonical)
@@ -1812,7 +1744,7 @@ public:
 	//				if (k > j)
 	//					vTerms.push_back(vTerm);
 
-	//				assert(cache.count(wWord) == 1);
+	//				assert(cache->count(wWord) == 1);
 	//				TermRecord rec = cache[wWord];
 	//				if (rec.nTermsBeyond == 0)
 	//					break;
@@ -1862,18 +1794,19 @@ public:
 
 		for (vector<wstring>::size_type i = 0; i < vWordsNoDups.size(); ++i)
 		{
-			unordered_map<wstring,TermRecord>::iterator it = cache.find(vWordsNoDups[i]);
-			if (it == cache.end())
+			unordered_map<wstring,TermRecord>::iterator it = cache->find(vWordsNoDups[i]);
+			if (it == cache->end())
 				continue;
 			
-			wstring wQuery = L"select exists(select 1 from words where WoTextLC like '%";
+			wstring wQuery = L"select exists(select 1 from ";
+			wQuery += wTableSetPrefix;
+			wQuery.append(L"words where WoTextLC like '%");
 			wQuery += vWordsNoDups[i];
 			if (bWithSpaces == true)
 				wQuery.append(L" %'");
 			else
 				wQuery.append(L"%'");
 			wQuery.append(L" LIMIT 1)");
-			//mb(wQuery);
 			if (!DoExecuteDirect(_T("677idjfjf"), wQuery))
 				break;
 
@@ -1947,23 +1880,15 @@ public:
 			}
 		}
 	}
-	//void SentenceWordsToWordsMinusBookmarks(vector<wstring>& words, const vector<vector<wstring>>& vSentencesVWords)
-	//{
-	//	for (int i = 0; i < vSentencesVWords.size(); ++i)
-	//	{
-	//		for (int j = 0; j < vSentencesVWords[i].size(); ++j)
-	//			words.push_back(WordSansBookmarks(vSentencesVWords[i][j]));
-	//	}
-	//}
 	wstring EscapeSQLQueryValue(const wstring& wQuery)
 	{
 		TRACE(L"Entering EscapeSQLQueryValue: const overload\n");
 		
 		wstring out(wQuery);
 		EscapeSQLQueryValue(out);
-		return out;
 
 		TRACE(L"Leaving EscapeSQLQueryValue: const overload\n");
+		return out;
 	}
 	wstring& EscapeSQLQueryValue(wstring& wQuery)
 	{
@@ -1983,8 +1908,8 @@ public:
 			pos = wQuery.find('\'', pos2);
 		}
 
-		return wQuery;
 		TRACE(L"Leaving EscapeSQLQueryValue\n");
+		return wQuery;
 	}
 	void InsertCacheItems(int nAtATime, list<wstring>& lstItems, bool bIsMultiWord = false)
 	{
@@ -2012,7 +1937,9 @@ public:
 			wInList.append(L"'~~z~x~~Q_a_dummy_value'");
 			wstring wQuery;
 			wQuery.reserve(nAtATime * MAX_FIELD_WIDTH);
-			wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from words where WoLgID = ");
+			wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
+			wQuery.append(wTableSetPrefix);
+			wQuery.append(L"words where WoLgID = ");
 			wQuery.append(wLgID);
 			wQuery.append(L" AND WoTextLC in (");
 			wQuery.append(wInList);
@@ -2031,7 +1958,7 @@ public:
 				TermRecord rec(tStmt.field(2).as_string());
 				rec.wRomanization = tStmt.field(3).as_string();
 				rec.wTranslation = tStmt.field(4).as_string();
-				cache.insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
+				cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
 				if (bIsMultiWord == true)
 					UpdatePageMWList(wLC);
 				else
@@ -2041,9 +1968,9 @@ public:
 		}
 		TRACE(L"%s", L"Leaving InsertCacheItems\n");
 	}
-	void GetUncachedTokens(list<wstring>& out, const TokenStruct& tokens)
+	list<wstring> GetUncachedTokens(const TokenStruct& tokens)
 	{
-		TRACE(L"%s", L"Calling GetUncachedTokens\n");
+		list<wstring> out;
 		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
 		{
 			if (tokens[i].bDigested)
@@ -2052,28 +1979,27 @@ public:
 				{
 					if (tokens[i].isWordDigested(j))
 					{
-						unordered_map<wstring,TermRecord>::const_iterator it = cache.find(tokens[i][j]);
-						if (it == cache.end())
+						unordered_map<wstring,TermRecord>::const_iterator it = cache->find(tokens[i][j]);
+						if (it == cache->end())
 							out.push_back(tokens[i][j]);
 					}
 				}
 			}
 		}
-		TRACE(L"%s", L"Leaving GetUncachedTokens\n");
+		out.sort();
+		out.unique();
+		return out;
 	}
 	void EnsureRecordEntryForEachWord(const TokenStruct& tknCanonical)
 	{
-		TRACE(L"%s", L"Calling EnsureRecordEntryForEachWord\n");
-		list<wstring> lstUncachedWords;
-		GetUncachedTokens(lstUncachedWords, tknCanonical);
+		list<wstring> lstUncachedWords = GetUncachedTokens(tknCanonical);
 
-		int MAX_MYSQL_INLIST_LEN = 2000;
+		const int MAX_MYSQL_INLIST_LEN = 2000;
 
 		InsertCacheItems(MAX_MYSQL_INLIST_LEN, lstUncachedWords);
 
-		for(list<wstring>::iterator itList = lstUncachedWords.begin(), end = lstUncachedWords.end(); itList != end; ++itList)
-			cache.insert(unordered_map<wstring,TermRecord>::value_type(*itList, TermRecord(L"0")));
-		TRACE(L"%s", L"Leaving EnsureRecordEntryForEachWord\n");
+		for(wstring wTerm : lstUncachedWords)
+			cache->insert(unordered_map<wstring,TermRecord>::value_type(wTerm, TermRecord(L"0")));
 	}
 	void test5(vector<wstring>& v)
 	{
@@ -2085,6 +2011,7 @@ public:
 		TRACE(L"%s", L"Calling EnsureRecordEntryForEachMWTerm\n");
 		list<wstring> lstTerms;
 		ParseSentencesToMWTerms(lstTerms, tknCanonical);
+
 
 		//vector<wstring> vUncachedMWTerms;
 		//GetUncachedSubset(vUncachedMWTerms, vTerms);
@@ -2218,6 +2145,101 @@ public:
 		}
 
 	}
+	void PSTS_BookmarkLevel(TokenStruct& tokens, const wstring& in)
+	{
+		wstring::size_type pos1 = 0, pos2 = 0;
+		Token_Sentence ts(true);
+		
+		wstring regPtn;
+		regPtn.append(L"(?:~[-ALP]~");
+		regPtn.append(L"[0-9]+");
+		regPtn.append(L"~[-ALP]~)+");
+
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wregex_iterator regit(in.begin(), in.end(), wrgx);
+		wregex_iterator rend;
+
+		while (regit != rend)
+		{
+			wstring wBookmarks = regit->str();
+			assert(pos1 != wstring::npos && pos1 >= 0 && pos1 < in.size());
+			pos2 = in.find(wBookmarks, pos1);
+			assert(pos2 != wstring::npos); // regex pattern just found should be found again
+			if (pos2 != pos1) // non-bookmark data found in sentence, try to parse as words
+				PSTS_WordLevel2(ts, wstring(in, pos1, pos2-pos1));
+			pos1 = pos2 + wBookmarks.size();
+
+			ts.push_back(wBookmarks, false);
+
+			++regit;
+		}
+		if (pos1 == 0) // no bookmarks present
+		{
+			PSTS_WordLevel2(ts, in);
+			tokens.push_back(ts);
+		}
+		else
+		{
+			if (pos1 < in.size()) // we have data left after final bookmark
+				PSTS_WordLevel2(ts, wstring(in, pos1, in.size()-pos1));
+
+			tokens.push_back(ts);
+		}
+
+	}
+	void PSTS_WordLevel2(Token_Sentence& ts, const wstring& in)
+	{
+		wstring::size_type pos1 = 0, pos2 = 0;
+
+		// pattern: (?:(?:~-~#~-~)*[aWordChar])(?:~-~#~-~|[aWordChar])*
+		// regex pattern regPtn ensures that it returns a true word (contains at least one lwt defined word character)
+		// regPtns also ensures that if ~ is considered a valid wordChar, we won't end up at - and choke on a bookmark tag,
+		// i.e. it eats whole bookmarks first at each comparison point, and it why the second appearance of [aWordChar]
+		// is not [aWordChar]+
+		wstring regPtn;
+		regPtn.append(L"[");
+		regPtn += WordChars;
+		regPtn.append(L"]");
+		if (bWithSpaces)
+		{
+			regPtn.append(L"+");
+		}
+
+		wregex wrgx(regPtn, regex_constants::icase | regex_constants::ECMAScript);
+		wregex_iterator regit(in.begin(), in.end(), wrgx);
+		wregex_iterator rend;
+
+		while (regit != rend)
+		{
+			wstring wWord = regit->str();
+			assert(pos1 != wstring::npos && pos1 >= 0 && pos1 < in.size());
+			pos2 = in.find(wWord, pos1);
+			assert(pos2 != wstring::npos); // regex pattern just found should be found again
+			if (pos2 != pos1) // non-word data found in sentence
+				ts.push_back(wstring(in, pos1, pos2-pos1), false);
+			pos1 = pos2 + wWord.size();
+			
+			if (bWithSpaces)
+				ts.push_back(wWord);
+			else
+			{
+				for (wstring::size_type i = 0; i < wWord.size(); ++i)
+					ts.push_back(wstring(wWord, i, 1));
+			}
+
+			++regit;
+		}
+		if (pos1 == 0) // only non-digest data in this sentence
+		{
+			ts.push_back(in, false);
+		}
+		else
+		{
+			if (pos1 < in.size()) // we have data left in the sentence we received that contains no words
+				ts.push_back(wstring(in, pos1, in.size()-pos1), false);
+		}
+
+	}
 	void PSTS_WordLevel(TokenStruct& tokens, const wstring& in)
 	{
 		wstring::size_type pos1 = 0, pos2 = 0;
@@ -2237,7 +2259,7 @@ public:
 			regPtn += wHiddenChunkBookmark;
 			regPtn.append(L")*[");
 			regPtn += WordChars;
-			regPtn.append(L"])(?:");
+			regPtn.append(L"]?)(?:");
 			regPtn += wHiddenChunkBookmark;
 			regPtn.append(L"[0-9]+");
 			regPtn += wHiddenChunkBookmark;
@@ -2298,14 +2320,8 @@ public:
 	{
 		wstring::size_type pos1 = 0, pos2 = 0;
 
-		// pattern: (?:acceptable_sub_sequence|[^a_sentence_separactor_char])+
-		//wstring rgxPtn = L"(?:";
-		//rgxPtn += SentDelimExcepts + L"|[^";
-		//rgxPtn += SentDelims + L"])+";
 		wstring rgxPtn = L"[^";
 		rgxPtn += SentDelims + L"]+";
-		if (tokens.size() == 28)
-			int idh = 3;
 		wregex wrgx(rgxPtn);
 		wregex_iterator regit(in.begin(), in.end(), wrgx);
 		wregex_iterator rend;
@@ -2324,7 +2340,8 @@ public:
 				tokens.push_back(wstring(in, pos1, pos2 - pos1));
 			pos1 = pos2 + wSentence.size();
 
-			PSTS_WordLevel(tokens, wSentence);
+			//PSTS_WordLevel(tokens, wSentence);
+			PSTS_BookmarkLevel(tokens, wSentence);
 
 			++regit;
 		}
@@ -3075,8 +3092,8 @@ public:
 					continue;
 				}
 
-				unordered_map<wstring,TermRecord>::const_iterator it = cache.find(tknCanonical[i][j]);
-				assert(it != cache.end()); // there should always be a result
+				unordered_map<wstring,TermRecord>::const_iterator it = cache->find(tknCanonical[i][j]);
+				assert(it != cache->end()); // there should always be a result
 			
 				//prepend any multiword term spans that start at this word
 				if (it->second.nTermsBeyond != 0) //the term participates in multiwords
@@ -3111,8 +3128,8 @@ public:
 							if (usetPageMWList.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 								break;
 
-							unordered_map<wstring,TermRecord>::const_iterator it = cache.find(curTerm);
-							if (it != cache.end())
+							unordered_map<wstring,TermRecord>::const_iterator it = cache->find(curTerm);
+							if (it != cache->end())
 								stkMWTerms.push(mwVals(it->second.wStatus, to_wstring(k-j+1-nSkipCount), curTerm));
 						}
 
@@ -3150,8 +3167,8 @@ public:
 	//		for (int indWord = 0; indWord < vSentencesVWords[indSentence].size(); ++indWord)
 	//		{
 	//			wstring curWord = WordSansBookmarks(vSentencesVWords[indSentence][indWord]);
-	//			unordered_map<wstring,TermRecord>::iterator it = cache.find(curWord);
-	//			assert(it != cache.end()); // there should always be a result
+	//			unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
+	//			assert(it != cache->end()); // there should always be a result
 	//			if (it->second.nTermsBeyond == 0)
 	//			{
 	//				AppendWordSpan(out, it->second.wStatus, vSentencesVWords[indSentence][indWord]);
@@ -3175,8 +3192,8 @@ public:
 	//				if (usetPageMWList.count(curWord) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 	//					break;
 
-	//				unordered_map<wstring,TermRecord>::iterator it = cache.find(curWord);
-	//				if (it != cache.end())
+	//				unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
+	//				if (it != cache->end())
 	//					stkMWTerms.push(mwVals(it->second.wStatus, to_wstring(indTerm-indWord+1)));
 	//			}
 
@@ -3210,8 +3227,8 @@ public:
 	//		for (int indWord = 0; indWord < vSentencesVWords[indSentence].size(); ++indWord)
 	//		{
 	//			wstring curWord = WordSansBookmarks(vSentencesVWords[indSentence][indWord]);
-	//			unordered_map<wstring,TermRecord>::iterator it = cache.find(curWord);
-	//			assert(it != cache.end()); // there should always be a result
+	//			unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
+	//			assert(it != cache->end()); // there should always be a result
 	//			if (it->second.nTermsBeyond == 0)
 	//			{
 	//				AppendWordSpan(out, it->second.wStatus, Word_RestoreAllBookmarks(vSentencesVWords[indSentence][indWord], chunks));
@@ -3235,8 +3252,8 @@ public:
 	//				if (usetPageMWList.count(curWord) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 	//					break;
 
-	//				unordered_map<wstring,TermRecord>::iterator it = cache.find(curWord);
-	//				if (it != cache.end())
+	//				unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
+	//				if (it != cache->end())
 	//					stkMWTerms.push(mwVals(it->second.wStatus, to_wstring(indTerm-indWord+1)));
 	//			}
 
@@ -3424,26 +3441,57 @@ public:
 
 		for (auto it = termSet.cbegin(); it != termSet.cend(); ++it)
 		{
-			AppendTermRecordDiv(pBody, *it, cache.find(*it)->second);
+			AppendTermRecordDiv(pBody, *it, cache->find(*it)->second);
 		}
 	}
-	wstring LanguageChoice_GetDropdownHTML()
+	wstring GetDropdownHTML_TableSet()
+	{
+		wstring wResult;
+		wResult.append(L"<option value=\"\"");
+		if (wTableSetPrefix == L"")
+			wResult.append(L" selected=\"selected\"");
+		wResult.append(L">Default Table Set</option>");
+
+		vector<wstring> vPrefixes;
+		GetDropdownPrefixList(vPrefixes);
+
+		for (wstring set : vPrefixes)
+		{
+			wResult.append(L"<option value=\"");
+			wResult.append(set);
+			wResult.append(L"\"");
+			if (wTableSetPrefix == set + L"_")
+				wResult.append(L" selected=\"selected\"");
+			wResult.append(L">");
+			wResult.append(set);
+			wResult.append(L"</option>");
+		}
+
+		return wResult;
+	}
+	wstring GetDropdownHTML_LanguageChoice()
 	{
 		wstring wResult = L"";
-		wstring wQuery = L"select LgID, LgName from languages";
+		wstring wQuery = L"select LgID, LgName from ";
+		wQuery.append(wTableSetPrefix);
+		wQuery.append(L"languages");
 		if (this->DoExecuteDirect(L"3394uhfljh", wQuery))
 		{
 			while (tStmt.fetch_next())
 			{
+				wstring curID = tStmt.field(1).as_string();
 				wResult.append(L"<option value=\"");
-				wResult.append(tStmt.field(1).as_string());
-				wResult.append(L"\">");
+				wResult.append(curID);
+				wResult.append(L"\"");
+				if (wLgID == curID)
+					wResult.append(L" selected=\"selected\"");
+				wResult.append(L">");
 				wResult.append(tStmt.field(2).as_string());
 				wResult.append(L"</option>");
 			}
+			tStmt.free_results();
 		}
 		
-		tStmt.free_results();
 		return wResult;
 	}
 	void AppendHtmlBlocks(IHTMLDocument2* pDoc, IHTMLElement* pBody)
@@ -3510,20 +3558,25 @@ public:
 		L"</div>"
 		);
 
-		wstring wDropdown = LanguageChoice_GetDropdownHTML();
+		wstring wDropdown = GetDropdownHTML_LanguageChoice();
+		wstring wDropdown2 = GetDropdownHTML_TableSet();
 
 		out.append(
-			L"<div id=\"lwtSettings\" style=\"position:absolute;left:0;top:0;width:100%;background-color:white;display:none;z-index:1000;\">"
+			L"<div id=\"lwtSettings\" style=\"position:absolute;left:0;top:0;width:100%;background-color:white;padding:5px;display:none;z-index:1000;\">"
 			L"Choose language: <select id=\"lwtLangDropdown\" onchange=\"lwtChangeLang(this);\">");
 		out.append(wDropdown.c_str());
 		out.append(
+			L"</select><br /><br />"
+			L"Choose Table Set: <select id=\"lwtTableSetDropdown\" onchange=\"lwtChangeTableSet(this);\">");
+		out.append(wDropdown2.c_str());
+		out.append(
 			L"</select><br />"
+			L"<br />"
 			L"<button type=\"button\" onclick=\"document.getElementById('lwtSettings').style.display = 'none';\">Close Settings</button>"
 			L"</div>"
 			L"<div id=\"lwtCurLangChoice\" style=\"display:none;\" value=\"\" lwtAction=\"changeLang\"></div>"
 			L"<div id=\"lwtBhoCommand\" style=\"display:none;\" value=\"\" onclick=\"lwtExecBhoCommand()\"></div>"
-			L"<div id=\"lwtJSCommand\" style=\"display:none;\" lwtAction=\"\"></div>"
-			
+			L"<div id=\"lwtJSCommand\" style=\"display:none;\" value=\"\" lwtAction=\"\"></div>"
 			);
 
 		out.append(L"<div id=\"lwtdict1\" style=\"display:none;\" src=\"");
@@ -3565,8 +3618,8 @@ public:
 				{
 					if (tknCanonical[i].isWordDigested(j))
 					{
-						unordered_map<wstring,TermRecord>::const_iterator it = cache.find(tknCanonical[i][j]);
-						assert(it != cache.end());
+						unordered_map<wstring,TermRecord>::const_iterator it = cache->find(tknCanonical[i][j]);
+						assert(it != cache->end());
 						out.insert(tknCanonical[i][j]);
 
 						if (it->second.nTermsBeyond != 0) //the term might participate in multiword terms
@@ -3591,8 +3644,8 @@ public:
 									if (usetPageMWList.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 										break;
 
-									unordered_map<wstring,TermRecord>::const_iterator it = cache.find(curTerm);
-									if (it != cache.end())
+									unordered_map<wstring,TermRecord>::const_iterator it = cache->find(curTerm);
+									if (it != cache->end())
 										out.insert(curTerm);
 								}
 							}
@@ -3653,7 +3706,7 @@ public:
 					continue;
 				}
 
-				cache_cit it = cache.find(tknCanonical[i][j]); assert(it != cache.end()); // there should always be a result
+				cache_cit it = cache->find(tknCanonical[i][j]); assert(it != cache->end()); // there should always be a result
 
 				if (it->second.nTermsBeyond != 0) //the term might participate in multiword terms
 				{
@@ -3678,8 +3731,8 @@ public:
 							if (usetPageMWList.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 								break;
 
-							cache_cit it = cache.cfind(curTerm);
-							if (it != cache.cend())
+							cache_cit it = cache->cfind(curTerm);
+							if (it != cache->cend())
 								stkMWTerms.push(mwVals(&(it->second), to_wstring(k-j+1-nSkipCount), curTerm));
 						}
 
@@ -4065,6 +4118,21 @@ public:
 		pNI = GetNodeIteratorWithFilter(pDoc, pBody, dynamic_cast<IDispatch*>(&filter));
 		pBody->Release();
 	}
+	void GetDropdownPrefixList(vector<wstring>& vPrefixes)
+	{
+		vPrefixes.clear();
+		wstring wQuery(L"show tables like '%_settings'");
+		if (tStmt.execute_direct(tConn, wQuery))
+		{
+			while(tStmt.fetch_next())
+			{
+				wstring wTableName = tStmt.field(1).as_string();
+				vPrefixes.push_back(wstring(wTableName, 0, wTableName.size() - 9));
+			}
+
+			tStmt.free_results();
+		}
+	}
 	void GetDropdownTermList(vector<wstring>& Terms, IHTMLElement* element)
 	{
 		IDispatch* pElemDisp = GetAlternateInterface<IHTMLElement,IDispatch>(element);
@@ -4178,9 +4246,9 @@ public:
 	}
 	inline bool TermInCache(const wstring& wTerm)
 	{
-		return cache.find(wTerm) != cache.end();
-		//unordered_map<wstring,TermRecord>::iterator it = cache.find(wTerm);
-		//return it != cache.end();
+		return cache->find(wTerm) != cache->end();
+		//unordered_map<wstring,TermRecord>::iterator it = cache->find(wTerm);
+		//return it != cache->end();
 	}
 	void oldPopupDialog()
 	{
@@ -4302,118 +4370,259 @@ public:
 		wstring_replaceAll(wNewRom, L"\r", L"");
 		return wNewRom;
 	}
-	void HandleClick()
+	/*
+		TermNotTracked does not search the cache; it reports only on the state of the current iterator.
+
+		There are two expected cases that must be covered:
+		1) a multiword term that is not tracked and so it is not in the cache at all
+		2) a single word term that is not tracked, but being on the page, is in the cache with a 0 status
+
+		The result is logaically equivalent to "not in cache, or, there but with a 0 status" which should cover the
+		full intent of the function's name.
+	*/
+	bool TermNotTracked(cache_it it)
 	{
-		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser);
+		return (it == cache->end() || it->second.wStatus == L"0"); // an untracked MW term || an untracked word
+	}
+	bool TermNotTracked(cache_cit it)
+	{
+		return (it == cache->end() || it->second.wStatus == L"0"); // an untracked MW term || an untracked word
+	}
+	/*
+		TermNotCached does not search the cache; it reports only on the state of the current iterator.
+	*/
+	bool TermNotCached(cache_it it)
+	{
+		return (it == cache->end());
+	}
+	bool TermNotCached(cache_cit it)
+	{
+		return (it == cache->end());
+	}
+	/*
+		TermNotCached does not search the cache; it reports only on the state of the current iterator.
+	*/
+	bool TermCached(cache_it it)
+	{
+		return (it != cache->cend());
+	}
+	bool TermCached(cache_cit it)
+	{
+		return (it != cache->cend());
+	}
+
+	/*
+		UpdateTrackedTerm
+
+		Returns true is update is successful, or false otherwise.
+	*/
+	bool UpdateTrackedTerm(const wstring& wCurInfoTerm, const wstring& wNewTrans, const wstring& wNewRom, cache_it& it)
+	{
+		bool bRetVal = false;
+
+		wstring wQuery = L"update ";
+		wQuery += wTableSetPrefix;
+		wQuery.append(L"words set WoTranslation = '");
+		wQuery += this->EscapeSQLQueryValue(wNewTrans);
+		wQuery.append(L"', WoRomanization = '");
+		wQuery += this->EscapeSQLQueryValue(wNewRom);
+		wQuery.append(L"' where WoTextLC = '");
+		wQuery += wCurInfoTerm;
+		wQuery.append(L"' and WoLgID = ");
+		wQuery += this->wLgID;
+				
+		if (DoExecuteDirect(L"4067xhidjf", wQuery))
+		{
+			it->second.wTranslation = wNewTrans;
+			it->second.wRomanization = wNewRom;
+			bRetVal = true;
+		}
+
+		return bRetVal;
+	}
+	/*	UpdateWebPageDivRec (Update Web Page Term Record Div Element)
+
+		Given a term's cache id by which it's record can be located, this function will update
+		the contents of that resident div record
+	*/
+	bool UpdateWebPageDivRec(unsigned int uTermID, const wstring& wNewTrans, const wstring& wNewRom, IHTMLDocument2* pDoc)
+	{
+		chaj::util::CatchSentinel<HRESULT> cs(S_OK, true);
+
+		wstring wCurTermId(L"lwt");
+		wCurTermId.append(to_wstring(uTermID));
+
+		IHTMLElement* pCurTermDivRec = GetElementFromId(wCurTermId, pDoc); SmartCOMRelease scCurTermDivRec(pCurTermDivRec);
+		if (pCurTermDivRec)
+		{
+			cs += SetAttributeValue(pCurTermDivRec, L"lwttrans", wNewTrans);
+			cs += SetAttributeValue(pCurTermDivRec, L"lwtrom", wNewRom);
+		}
+
+		if (cs.Seen())
+			return false;
+		else
+			return true;
+	}
+	void HandleUpdateTermInfo(IHTMLDocument2* pDoc)
+	{
+		IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc); SmartCOMRelease scCurInfoTerm(pCurInfoTerm);
+		if (!pCurInfoTerm) return;
+
+		wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
+		if (!wCurInfoTerm.size()) return;
+
+		cache_it it = cache->find(wCurInfoTerm);
+
+		if (TermNotTracked(it))
+		{
+			AddNewTerm(wCurInfoTerm, L"1", pDoc);
+			if (TermNotCached(it)) // then update iterator to point to recent addition
+				it = cache->find(wCurInfoTerm);
+		}
+
+		assert(it != cache->end()); // logically impossible
+		if (it == cache->end()) // crash guard
+			return;
+
+		// update tracked term
+		wstring wNewTrans = GetInfoTrans(pDoc);
+		wstring wNewRom = GetInfoRom(pDoc);
+		if (!UpdateTrackedTerm(wCurInfoTerm, wNewTrans, wNewRom, it))
+			return;
+
+		// update webpage
+		UpdateWebPageDivRec(it->second.uIdent, wNewTrans, wNewRom, pDoc);
+		SendLwtCommand(L"closeInfoEdit", pDoc);
+	}
+	void HandleStatChange(IHTMLElement* pElement, IHTMLDocument2* pDoc)
+	{
+		IHTMLElement* pLast = GetElementFromId(L"lwtlasthovered", pDoc); SmartCOMRelease scLast(pLast);
+		if (!pLast) return;
+
+		wstring wLast = GetAttributeValue(pLast, L"lwtterm");
+		wstring wCurStat = GetAttributeValue(pLast, L"lwtstat");
+		wstring wNewStat = GetAttributeValue(pElement, L"lwtstat");
+
+		if (!wLast.size())
+			return;
+
+		if (wCurStat == L"0")
+			AddNewTerm(wLast, wNewStat, pDoc);
+		else
+			ChangeTermStatus(wLast, wNewStat, pDoc);
+			
+		SetAttributeValue(pLast, L"lwtstat", wNewStat);
+	}
+	/*
+		ClearJSCommand clears hidden html elements that pass commands and arguments
+
+		This is an attempt to ensure clean transactions.
+	*/
+	void ClearJSCommand(IHTMLDocument2* pDoc)
+	{
 		if (!pDoc) return;
 
-		IHTMLEventObj* pEvent = GetEventFromDocument(pDoc);
-		if (!pEvent)
+		IHTMLElement* pJSCommand = GetElementFromId(L"lwtJSCommand", pDoc); SmartCOMRelease scJSCommand(pJSCommand);
+		if (!pJSCommand) return;
+
+		chaj::DOM::SetAttributeValue(pJSCommand, L"lwtAction", L"");
+		chaj::DOM::SetAttributeValue(pJSCommand, L"value", L"");
+	}
+	bool HandleFillMWTerm(IHTMLDocument2* pDoc)
+	{
+		if (!pDoc) return false;
+
+		IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc); SmartCOMRelease scCurInfoTerm(pCurInfoTerm);
+		if (!pCurInfoTerm) return false;
+
+		wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
+		if (!wCurInfoTerm.size()) return false;
+
+		cache_cit it = cache->cfind(wCurInfoTerm);
+		if (TermNotCached(it)) return false;
+
+		IHTMLElement* pTrans = GetElementFromId(L"lwtshowtrans", pDoc); SmartCOMRelease scTrans(pTrans);
+		IHTMLElement* pRom = GetElementFromId(L"lwtshowtrans", pDoc); SmartCOMRelease scRom(pRom);
+		if (!pTrans || !pRom)
+			return false;
+
+		chaj::util::CatchSentinel<HRESULT> cs(S_OK, true);
+		cs += chaj::DOM::SetElementInnerText(pTrans, it->second.wTranslation);
+		cs += chaj::DOM::SetElementInnerText(pRom, it->second.wRomanization);
+
+		if (cs.Seen())	return false;
+		else			return true;
+	}
+	void ReloadWebpage(IHTMLDocument2* pDoc)
+	{
+		SendLwtCommand(L"reloadPage", pDoc);
+	}
+	void GetLgID()
+	{
+		wstring wQuery(L"select StValue from ");
+		wQuery += wTableSetPrefix;
+		wQuery.append(L"settings where StKey = 'currentlanguage'");
+
+		if (!tStmt.execute_direct(tConn, wQuery))
 		{
-			pDoc->Release();
+			mb(L"Could not retrieve lwt language ID from settings.");
 			return;
 		}
-
-		IHTMLElement* pElement = GetClickedElementFromEvent(pEvent, pDoc);
-		if (pElement)
+		else
 		{
-			wstring wActionReq = GetAttributeValue(pElement, L"lwtAction");
-			wstring wStatChange = GetAttributeValue(pElement, L"lwtstatchange");
-			if (wStatChange.size())
+			if (tStmt.fetch_next() == false)
 			{
-				pEvent->Release();
-				IHTMLElement* pLast = GetElementFromId(L"lwtlasthovered", pDoc);
-				wstring wLast = GetAttributeValue(pLast, L"lwtterm");
-				assert(wLast != L"");
-
-				wstring wCurStat = GetAttributeValue(pLast, L"lwtstat");
-				wstring wNewStat = GetAttributeValue(pElement, L"lwtstat");
-				if (wCurStat == L"0")
-					AddNewTerm(wLast, wNewStat, pDoc);
-				else
-					ChangeTermStatus(wLast, wNewStat, pDoc);
-			
-				SetAttributeValue(pLast, L"lwtstat", wNewStat);
-
-				pLast->Release();
+				wLgID = L"";
+				mb(L"No languages have been defined for this TableSet -- or at least one is not selected.");
 			}
-			else if (wActionReq == L"lwtUpdateTermInfo")
-			{
-				pEvent->Release();
-
-				IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc);
-				assert(pCurInfoTerm);
-				wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
-				std::unordered_map<std::wstring, TermRecord>::iterator it = cache.find(wCurInfoTerm);
-				if (wCurInfoTerm.size() > 0 && (it == cache.end() || it->second.wStatus == L"0"))
-				{
-					AddNewTerm(wCurInfoTerm, L"1", pDoc);
-					it = cache.find(wCurInfoTerm);
-				}
-				if (wCurInfoTerm.size() > 0 && it != cache.end() && it->second.wStatus != L"0")
-				{
-					wstring wNewTrans = GetInfoTrans(pDoc);
-					wstring wNewRom = GetInfoRom(pDoc);
-
-					wstring wQuery = L"update words set WoTranslation = '";
-					wQuery += this->EscapeSQLQueryValue(wNewTrans);
-					wQuery.append(L"', WoRomanization = '");
-					wQuery += this->EscapeSQLQueryValue(wNewRom);
-					wQuery.append(L"' where WoTextLC = '");
-					wQuery += wCurInfoTerm;
-					wQuery.append(L"' and WoLgID = ");
-					wQuery += this->wLgID;
-				
-					if (DoExecuteDirect(L"4067xhidjf", wQuery))
-					{
-						it->second.wTranslation = wNewTrans;
-						it->second.wRomanization = wNewRom;
-						wstring wCurTermId(L"lwt");
-						wCurTermId.append(to_wstring(it->second.uIdent));
-						IHTMLElement* pCurTermDivRec = GetElementFromId(wCurTermId, pDoc);
-						assert(pCurTermDivRec);
-						SetAttributeValue(pCurTermDivRec, L"lwttrans", wNewTrans);
-						SetAttributeValue(pCurTermDivRec, L"lwtrom", wNewRom);
-						pCurTermDivRec->Release();
-						SendLwtCommand(L"closeInfoEdit", pDoc);
-					}
-				}			
-				pCurInfoTerm->Release();
-			}
-			else if (wActionReq == L"FillMWTerm")
-			{
-				IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc);
-				assert(pCurInfoTerm);
-				wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
-				pCurInfoTerm->Release();
-				cache_cit it = cache.cfind(wCurInfoTerm);
-				if (it != cache.cend())
-				{
-					IHTMLElement* pEl = GetElementFromId(L"lwtshowtrans", pDoc);
-					assert(pEl);
-					chaj::DOM::SetElementInnerText(pEl, it->second.wTranslation);
-					pEl->Release();
-					pEl = GetElementFromId(L"lwtshowrom", pDoc);
-					assert(pEl);
-					chaj::DOM::SetElementInnerText(pEl, it->second.wRomanization);
-				}
-				IHTMLElement* pJSCommand = GetElementFromId(L"lwtJSCommand", pDoc);
-				assert(pCurInfoTerm);
-				chaj::DOM::SetAttributeValue(pJSCommand, L"lwtAction", L"");
-				pJSCommand->Release();
-			}
-			else if (wActionReq == L"changeLang")
-			{
-				wstring wNewLgID = GetAttributeValue(pElement, L"value");
-				if (wNewLgID.size())
-				{
-					this->wLgID = wNewLgID;
-					OnLanguageChange(false, pDoc);
-				}
-			}
-			pElement->Release();
+			else
+				wLgID = tStmt.field(1).as_string();
+			tStmt.free_results();
 		}
-		pDoc->Release();
+	}
+	void HandleClick()
+	{
+		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
+		if (!pDoc) return;
+
+		IHTMLEventObj* pEvent = GetEventFromDocument(pDoc); SmartCOMRelease scEvent(pEvent);
+		if (!pEvent) return;
+
+		IHTMLElement* pElement = GetClickedElementFromEvent(pEvent, pDoc); SmartCOMRelease scElement(pElement);
+		if (!pElement) return;
+
+		wstring wActionReq = GetAttributeValue(pElement, L"lwtAction");
+		wstring wStatChange = GetAttributeValue(pElement, L"lwtstatchange");
+		wstring wActionValue;
+		if (wActionReq.size())
+		{
+			wActionValue = GetAttributeValue(pElement, L"value");
+			ClearJSCommand(pDoc);
+		}
+
+		if (wStatChange.size())
+			HandleStatChange(pElement, pDoc);
+		else if (wActionReq == L"lwtUpdateTermInfo")
+			HandleUpdateTermInfo(pDoc);
+		else if (wActionReq == L"FillMWTerm")
+			HandleFillMWTerm(pDoc);
+		else if (wActionReq == L"changeLang")
+		{
+			wstring wNewLgID = GetAttributeValue(pElement, L"value");
+			if (wNewLgID.size())
+			{
+				this->wLgID = wNewLgID;
+				OnLanguageChange(pDoc);
+			}
+		}
+		else if (wActionReq == L"changeTableSet")
+		{
+			wTableSetPrefix = wActionValue;
+				if (wTableSetPrefix.size())
+					wTableSetPrefix += L"_";
+			OnTableSetChange(pDoc);
+		}
 	}
 	IHTMLElement* GetHTMLElementFromDisp(IDispatch* pDispElement)
 	{
@@ -4575,6 +4784,9 @@ public:
 //pDispEx->Invoke(dispid, IID_NULL, NULL, DISPATCH_PROPERTYPUTREF, &params, NULL, NULL, NULL);
 
 private:
+	void GetCurrentTableSetPrefix();
+	void LoadJavascriptFile();
+
 	/* member variables */
 	unordered_set<wstring> usetPageMWList;
 
@@ -4596,6 +4808,7 @@ private:
 	mysqlpp::Connection conn;
 	tiodbc::connection tConn;
 	tiodbc::statement tStmt;
+	wstring wTableSetPrefix;
 	wstring wLgID;
 	wstring WordChars;
 	wstring SentDelims;
@@ -4609,13 +4822,94 @@ private:
 	TokenStruct tokens, tknSansBookmarks, tknCanonical;
 	bool bWithSpaces;
 	_bstr_t bstrUrl;
-	LWTCache cache;
-	LWTCache* pCache;
+	LWTCache* cache;
 	unordered_map<wstring, LWTCache*> cacheMap;
 	// wregex
 	wregex_iterator rend;
 	wregex wWordSansBookmarksWrgx;
 	wregex TagNotTagWrgx;
 };
+
+inline void LwtBho::GetCurrentTableSetPrefix()
+{
+	if (tStmt.execute_direct(tConn, L"select COALESCE(LWTValue, '') from _lwtgeneral where LWTKey = 'current_table_prefix'"))
+	{
+		if (tStmt.fetch_next())
+		{
+			wTableSetPrefix = tStmt.field(1).as_string();
+			if (wTableSetPrefix.size()) // only a non-null prefix should be _ terminated, the default is not such
+				wTableSetPrefix.append(L"_");
+		}
+		tStmt.free_results();
+	}
+}
+
+inline void LwtBho::LoadJavascriptFile()
+{
+	HRSRC rc = ::FindResource(hInstance, MAKEINTRESOURCE(IDR_LWTJAVASCRIPT01),
+		MAKEINTRESOURCE(JAVASCRIPT));
+	HGLOBAL rcData = ::LoadResource(hInstance, rc);
+	DWORD size = ::SizeofResource(hInstance, rc);
+	wJavascript = to_wstring(static_cast<const char*>(::LockResource(rcData)));
+}
+
+inline LwtBho::LwtBho()
+{
+#ifdef _DEBUG
+	mb("Here's your chance to attach debugger...");
+#endif
+	pSite = nullptr;
+	pBrowser = nullptr;
+	pCP = nullptr;
+	pHDEv = nullptr;
+	pNI = nullptr;
+	pTW = nullptr;
+	pDispBrowser = nullptr;
+	cache = nullptr;
+
+	hBrowser = NULL;
+	dwCookie = NULL;
+	dwCookie2 = NULL;
+	bDocumentCompleted = false;
+	ref = 0;
+	wLgID = L"";
+	WordChars = L"";
+	SentDelims = L"";
+	SentDelimExcepts = L"";
+	bWithSpaces = true;
+	bstrUrl = "";
+
+	LoadJavascriptFile();
+	assert(this->wJavascript.size());
+	LoadCssFile();
+	assert(this->wCss.size());
+
+	InitializeWregexes();
+
+	pFilter = new chaj::DOM::DOMIteratorFilter(&FilterNodes_LWTTerm);
+	pFullFilter = new chaj::DOM::DOMIteratorFilter(&FilterNodes_LWTTermAndSent);
+
+	//if (!tConn.connect(L"LWT", L"root", L""))
+	if (!tConn.lwtConnect(hBrowser))
+	{
+		//mb(_T("Cannot connect to the Data Source"));
+		//mb(tConn.last_error());
+		return;
+	}
+
+	GetCurrentTableSetPrefix();
+	OnTableSetChange(nullptr, false);
+}
+
+inline LwtBho::~LwtBho()
+{
+	if (pFilter != nullptr)
+		delete pFilter;
+
+	for (auto cacheEntry : cacheMap)
+	{
+		delete cacheEntry.second;
+	}
+}
 
 #endif

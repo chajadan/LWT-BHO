@@ -38,6 +38,7 @@
 // STL Headers
 #include <string>
 #include <map>
+#include <vector>
 
 //! The only one namespace of TinyODBC
 /**
@@ -137,6 +138,12 @@ namespace tiodbc
 			all the statements will be invalidated.
 		*/
 		~connection();
+
+		//Begin Lwt Bho customizations
+		bool lwtConnect(HWND hDlgParent);
+		wchar_t* getDriver();
+		std::vector<wchar_t*> getConnTries(wchar_t* sqlDrvr);
+		//End Lwt Bho customizations
 
 		//! Connect to a Data Source
 		/**

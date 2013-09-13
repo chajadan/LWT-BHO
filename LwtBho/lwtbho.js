@@ -2,13 +2,14 @@ function lwtSetup()
 {
 	var panelHeight = 50;
 	document.getElementById('lwtIntroDiv').style.height = panelHeight + 'px';
-	window.settings = document.getElementById('lwtSettings');
-	settings.style.height = '100px';
+	window.lwtSettings = document.getElementById('lwtSettings');
+	lwtSettings.style.height = '100px';
 	window.onscroll = moveInfoOnScroll;
 	document.attachEvent('onkeydown', lwtkeypress);
 	window.popupInfo = document.getElementById('lwtPopupInfo');
 	window.termInfo = document.getElementById('lwtterminfo');
-	window.bhoCommand = document.getElementById('lwtBhoCommand');
+	window.lwtBhoCommand = document.getElementById('lwtBhoCommand');
+	window.lwtJSCmd = document.getElementById('lwtJSCommand');
 	window.lastHovered = document.getElementById('lwtlasthovered');
 	window.popupTrans = document.getElementById('lwtPopupTrans');
 	window.popupRom = document.getElementById('lwtPopupRom');
@@ -159,7 +160,7 @@ function CloseAllDialogs()
 {
 	CloseOpenDialogs();
 	window.termInfo.style.display = 'none';
-	window.settings.style.display = 'none';
+	window.lwtSettings.style.display = 'none';
 }
 
 function lwtkeypress()
@@ -236,14 +237,6 @@ cancelMW();
 	lwtJSCommand('FillMWTerm');
 }
 
-function lwtJSCommand(command)
-{
-	var cmd = document.getElementById('lwtJSCommand');
-	cmd.setAttribute('lwtAction', command);
-	cmd.click();
-}
-
-
 function ExtrapLink(elem, linkForm, curTerm)
 {
 	if (elem == null) {return;}
@@ -279,7 +272,7 @@ function SetFloatPositions()
 		window.popupInfo.style.top = window.pageYOffset + 'px';
 	}
 
-	window.settings.style.top = window.pageYOffset + 'px';
+	window.lwtSettings.style.top = window.pageYOffset + 'px';
 }
 
 function moveInfoOnScroll()
@@ -387,9 +380,27 @@ function lwtChangeLang(selectElem)
 	curLangChoice.setAttribute('value', langDropdown.options[langDropdown.selectedIndex].value);
 	curLangChoice.click();
 }
+function lwtChangeTableSet(selectElem)
+{
+	var tableSetDropdown = document.getElementById('lwtTableSetDropdown');
+	lwtJSCommandWithValue('changeTableSet', tableSetDropdown.options[tableSetDropdown.selectedIndex].value);
+}
+
+function lwtJSCommand(command)
+{
+	window.lwtJSCmd.setAttribute('lwtAction', command);
+	window.lwtJSCmd.click();
+}
+
+function lwtJSCommandWithValue(command, value)
+{
+	window.lwtJSCmd.setAttribute('value', value);
+	lwtJSCommand(command);
+}
+
 function lwtExecBhoCommand()
 {
-	var bhoCommand = window.bhoCommand;
+	var bhoCommand = window.lwtBhoCommand;
 	var command = bhoCommand.getAttribute('value');
 	bhoCommand.setAttribute('value', '');
 	if (command == 'reloadPage')

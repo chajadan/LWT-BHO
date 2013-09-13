@@ -10,7 +10,7 @@
 //
 // User defined resources
 //
-IDR_LWTJAVASCRIPT01 JAVASCRIPT "..\lwtbho.js"
+IDR_LWTJAVASCRIPT01 JAVASCRIPT "..\LwtBho.js"
 IDR_LWTJAVASCRIPT02 HTML "settings.html"
 IDR_LWTCSS CSS "..\LwtBho.css"
 

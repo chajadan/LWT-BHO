@@ -1,4 +1,5 @@
 #include "./tiodbc.hpp"
+#include "chajUtil.h"
 
 // Macro for easy return code check
 #define TIODBC_SUCCESS_CODE(rc) \
@@ -103,6 +104,133 @@ namespace tiodbc
 
 		// Close enviroment
 		SQLFreeHandle(SQL_HANDLE_ENV, env_h);
+	}
+
+	wchar_t* connection::getDriver()
+	{
+		const SQLSMALLINT bufSize = 2048;
+		wchar_t* drvrDesc = new wchar_t[bufSize];
+		wchar_t drvrAtts[bufSize];
+		wchar_t* pCandidate = nullptr;
+		SQLSMALLINT attsSz, descSz;
+		SQLRETURN rc = SQL_SUCCESS;
+
+		for (SQLUSMALLINT dir = SQL_FETCH_FIRST; rc == SQL_SUCCESS; dir = SQL_FETCH_NEXT)
+		{
+			rc = SQLDrivers(env_h, dir, reinterpret_cast<SQLWCHAR*>(drvrDesc), bufSize, &descSz, reinterpret_cast<SQLWCHAR*>(drvrAtts), bufSize, &attsSz);
+			if (wcsstr(drvrDesc, L"MySQL"))
+			{
+				if (wcsstr(drvrDesc, L"Unicode"))
+					return drvrDesc;
+				else
+					pCandidate = drvrDesc;
+			}
+		}
+		
+		return pCandidate;
+	}
+
+	/*
+		Returns some likely LWT connection strings
+	*/
+	std::vector<wchar_t*> connection::getConnTries(SQLWCHAR* sqlDrvr)
+	{
+		std::vector<wchar_t*> ret;
+		const int bufSize = 1024;
+
+		wchar_t w1[bufSize];
+		wcscpy_s(w1, _countof(w1), L"Driver={");
+		wcscat_s(w1, _countof(w1), sqlDrvr);
+		wcscat_s(w1, _countof(w1), L"};");
+
+		wchar_t* conn1 = new wchar_t[bufSize];
+		wcscpy_s(conn1, bufSize, w1);
+		wcscat_s(conn1, bufSize, L"Server=localhost;");
+		wcscat_s(conn1, bufSize, L"Database=learning-with-texts;User=root;");
+		
+
+		wchar_t* conn2 = new wchar_t[bufSize];
+		wcscpy_s(conn2, bufSize, L"Provider=MSDASQL;");
+		wcscat_s(conn2, bufSize, conn1);
+
+		if (wcsstr(sqlDrvr, L"ODBC"))
+		{
+			wchar_t* conn3 = new wchar_t[bufSize];
+			wcscpy_s(conn3, bufSize, conn1);
+			wcscat_s(conn3, bufSize, L"Option=3;");
+			ret.push_back(conn3);
+
+			wchar_t* conn4 = new wchar_t[bufSize];
+			wcscpy_s(conn4, bufSize, conn2);
+			wcscat_s(conn4, bufSize, L"Option=3;");
+			ret.push_back(conn4);
+		}
+
+		ret.push_back(conn1);
+		ret.push_back(conn2);
+
+		return ret;
+	}
+
+	// LWT extension to connect to MySQL
+	bool connection::lwtConnect(HWND hDlgParent)
+	{
+		RETCODE rc;
+		bool bSuccess = false;
+		
+		// Close if already open
+		disconnect();
+		
+		// Close previous connection handle to be sure
+		SQLFreeHandle(SQL_HANDLE_DBC, conn_h);
+
+		// Allocate a new connection handle
+		rc = SQLAllocHandle(SQL_HANDLE_DBC, env_h, &conn_h);
+
+		// Connect!
+		wchar_t OutConnStr[1024];
+		SQLSMALLINT OutConnStrLen;
+		rc = SQL_ERROR;
+		wchar_t* sqlDrvr = this->getDriver();
+		if (sqlDrvr)
+		{
+			std::vector<wchar_t*> connTries = this->getConnTries(sqlDrvr);
+			for (wchar_t* val : connTries)
+			{
+				rc = SQLDriverConnect(
+					   conn_h, 
+					   NULL, 
+					   val,
+					   static_cast<SQLSMALLINT>(wcslen(val)), // a safe conversion, size-wise
+					   reinterpret_cast<wchar_t*>(OutConnStr),
+					   _countof(OutConnStr), 
+					   &OutConnStrLen,
+					   SQL_DRIVER_NOPROMPT);
+				if (rc == SQL_SUCCESS || rc == SQL_SUCCESS_WITH_INFO)
+					break;
+			}
+			for (wchar_t* val : connTries)
+			{
+				delete [] val;
+			}
+		}
+
+		if (rc != SQL_SUCCESS && rc != SQL_SUCCESS_WITH_INFO)
+		{
+			bSuccess = connect(L"LWT", L"root", L"");
+			if (!bSuccess)
+				bSuccess = connect(L"LWT", L"root", L"root");
+		}
+
+		if (!TIODBC_SUCCESS_CODE(rc) && !bSuccess)
+		{
+			b_connected = false;
+			MessageBox(hDlgParent, L"Unable to connect to LWT database. Create a DSN named LWT, user root, pwd root or blank. See documentation if necessary.", L"Notice", MB_OK);
+		}
+		else
+			b_connected = true;
+
+		return b_connected;
 	}
 
 	// open a connection with a data_source
@@ -445,7 +573,9 @@ namespace tiodbc
 
 	// Execute direct a query
 	bool statement::execute_direct(connection & _conn, const _tstring & _query)
-	{	RETCODE rc;
+	{	
+		TRACE(L"%s", _query.c_str());
+		RETCODE rc;
 
 		// Close previous
 		close();

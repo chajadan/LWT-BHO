@@ -90,14 +90,14 @@
   <ItemGroup>
     <ClCompile Include="chajDOM.cpp" />
     <ClCompile Include="chajUtil.cpp" />
+    <ClCompile Include="LwtBho.cpp" />
     <ClCompile Include="tiodbc.cpp" />
     <ClCompile Include="HTMLLinguisticAnnotator.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="old.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="LwtBho.css" />
-    <None Include="lwtbho.js" />
+    <None Include="LwtBho.js" />
     <None Include="main.def" />
     <None Include="Resource\settings.html" />
   </ItemGroup>
@@ -110,6 +110,7 @@
     <ClInclude Include="LwtBho.h" />
     <ClInclude Include="LWTCache.h" />
     <ClInclude Include="TermRecord.h" />
+    <ClInclude Include="tstring.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="DocNotes.txt" />

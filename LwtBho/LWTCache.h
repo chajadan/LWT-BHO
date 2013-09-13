@@ -3,16 +3,17 @@
 
 #include <unordered_map>
 #include <string>
+#include <assert.h>
 #include "chajUtil.h"
 #include "TermRecord.h"
 
-CRITICAL_SECTION CS_AddCacheEntry;
 typedef std::unordered_map<wstring,TermRecord>::const_iterator cache_cit;
+typedef std::unordered_map<wstring,TermRecord>::iterator cache_it;
 
 class LWTCache
 {
 public:
-	LWTCache(wstring wLgID) : _cur(0), _wLgID(wLgID)
+	LWTCache(wstring wLgID = L"", wstring wTblPfx = L"") : _cur(0), _wLgID(wLgID), _wTblPfx(wTblPfx)
 	{
 		if (!InitializeCriticalSectionAndSpinCount(&CS_AddCacheEntry, 0x00000400))
 			TRACE(L"Cound not initialize critical section in LWTCache. 3850duhf");
@@ -31,13 +32,21 @@ public:
 		EnterCriticalSection(&CS_AddCacheEntry);
 		newEntry.second.uIdent = _cur++;
 		_cache.insert(newEntry);
+#ifdef _DEBUG
+			cache_it it = _cache.find(newEntry.first);
+			assert(it != _cache.end());
+#endif
 		LeaveCriticalSection(&CS_AddCacheEntry);
 	}
 	
 private:
+	LWTCache(const LWTCache&) {}
+	LWTCache& operator=(const LWTCache&) {}
+	CRITICAL_SECTION CS_AddCacheEntry;
 	std::unordered_map<std::wstring,TermRecord> _cache;
 	unsigned int _cur;
 	wstring _wLgID;
+	wstring _wTblPfx;
 };
 
 #endif

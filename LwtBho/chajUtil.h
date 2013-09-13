@@ -5,16 +5,17 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include <string>
+#include "tstring.h"
 #include <algorithm>
 #include <locale>
 #include "windows.h"
 #include "Unknwn.h"
 
-#ifdef _UNICODE
-	typedef std::wstring tstring;
-#else
-	typedef std::string wstring;
-#endif
+//#ifdef _UNICODE
+//	typedef std::wstring tstring;
+//#else
+//	typedef std::string tstring;
+//#endif
 
 #ifdef _DEBUG
 bool _trace(TCHAR *format, ...);
@@ -24,7 +25,7 @@ bool _trace(TCHAR *format, ...);
 #endif
 
 extern HWND hMBParent;
-void mb(tstring msg, HWND hParent = NULL);
+void mb(std::tstring msg, HWND hParent = NULL);
 void mb(char* msg, HWND hParent = NULL);
 void mb(char* msg, char* cap, HWND hParent = NULL);
 void mb(std::wstring msg, std::wstring cap);
@@ -34,10 +35,10 @@ namespace chaj
 {
 	namespace util
 	{
-		template<class T>
+		
 		/*
 			CatchSentinel accepts a series of inputs and watches for a sentinel value, i.e. a trigger input.
-			The are two cases:
+			There are two cases:
 				1) (The default case): the class notices when a particular value happens to be received
 					2) The class notices when the input is not the only input you expect
 			
@@ -54,7 +55,7 @@ namespace chaj
 			if (cs.Seen()) // we have encounter a backslash
 				...handle case
 		*/
-		class CatchSentinel
+		template<class T> class CatchSentinel
 		{
 		public:
 			CatchSentinel(T tSentinel, bool bCatchException = false): tSentinel(tSentinel), tLastException(tSentinel), bCatchException(bCatchException), bCaught(false){}
