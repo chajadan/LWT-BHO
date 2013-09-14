@@ -4,6 +4,7 @@
 #include <Windows.h>	// IDispatch
 #include <string>		// std::wstring
 #include "mshtml.h"		// IHTMLElement, etc.
+#include "exdisp.h"		// IWebBrowser2
 #include "comutil.h"	// _bstr_t(Lib: comsuppw.lib or comsuppwd.lib)
 
 namespace chaj
@@ -23,6 +24,9 @@ namespace chaj
 		IHTMLElementCollection* GetAllElementsFromDoc(IHTMLDocument2* pDoc);
 		IHTMLElement* GetHeadAsElementFromDoc(IHTMLDocument2* pDoc);
 		IDocumentTraversal* GetDocTravFromDoc(IHTMLDocument2* pDoc);
+
+		IHTMLDocument2* GetDocumentFromBrowser(IWebBrowser2* pBrowser);
+
 		IDOMTreeWalker* GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* pFilter, long lShow = SHOW_ALL);
 		IDOMTreeWalker* GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, long (*FilterFunc)(IDispatch*), long lShow = SHOW_ALL);
 		IDOMNodeIterator* GetNodeIteratorWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, long (*FilterFunc)(IDispatch*), long lShow = SHOW_ALL);

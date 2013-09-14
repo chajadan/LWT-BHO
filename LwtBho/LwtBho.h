@@ -6,6 +6,7 @@
 #include "assert.h"
 #include "dbdriver.h"
 #include <Windows.h>
+#include <thread>
 #include "tchar.h"
 #include "stdio.h"
 #include "Ocidl.h"
@@ -3331,6 +3332,9 @@ public:
 	*/
 	void SetDocTreeWalker(IHTMLDocument2* pDoc, IHTMLElement* pRoot = NULL)
 	{
+		if (!pDoc) // crash guard for arguments
+			return;
+
 		HRESULT hr;
 		bool bMustFree = false;
 
@@ -3347,6 +3351,7 @@ public:
 		{
 			if (bMustFree)
 			{
+
 				pRoot->Release();
 				return;
 			}
@@ -3378,6 +3383,9 @@ public:
 	}
 	void ParsePage(IHTMLDocument2* pDoc)
 	{
+		if (!pDoc) // crash guard for arguments
+			return;
+
 		IHTMLElement* pBody = NULL;
 		wstring wsBodyContent = L"";
 		GetBodyContent(wsBodyContent, pBody, pDoc);	
@@ -3455,12 +3463,12 @@ public:
 		vector<wstring> vPrefixes;
 		GetDropdownPrefixList(vPrefixes);
 
-		for (wstring set : vPrefixes)
+		for (wstring& set : vPrefixes)
 		{
 			wResult.append(L"<option value=\"");
 			wResult.append(set);
 			wResult.append(L"\"");
-			if (wTableSetPrefix == set + L"_")
+			if (wTableSetPrefix.find(set) == 0 && wTableSetPrefix.size() == set.size() + 1)
 				wResult.append(L" selected=\"selected\"");
 			wResult.append(L">");
 			wResult.append(set);
@@ -3672,6 +3680,15 @@ public:
 		wstring out;
 		int lwtid = 1;
 
+		AppendTermRecordDivs(pBody);
+		AppendHtmlBlocks(pDoc, pBody);
+		/* specifically last after all elements placed */ AppendInfoBoxJavascript(pDoc, pBody);
+
+		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc);
+		assert(pSetupLink);
+		dhr(pSetupLink->click());
+		pSetupLink->Release();
+
 		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
 		if (!pRange)
 			return;
@@ -3763,15 +3780,6 @@ public:
 		}
 
 		dhr(pRange->pasteHTML(bstrSentenceMarker));
-
-		AppendTermRecordDivs(pBody);
-		AppendHtmlBlocks(pDoc, pBody);
-		/* specifically last after all elements placed */ AppendInfoBoxJavascript(pDoc, pBody);
-
-		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc);
-		assert(pSetupLink);
-		dhr(pSetupLink->click());
-		pSetupLink->Release();
 
 		SysFreeString(bstrSentenceMarker);
 	}
@@ -3901,12 +3909,20 @@ public:
 			return E_FAIL;
 	}
 
-	void OnDocumentComplete(IHTMLDocument2* pDoc)
+	void OnPageFullyLoaded(LPSTREAM pBrowserStream)
 	{
-		TRACE(L"%s", L"Calling OnDocumentComplete\n");
+		IWebBrowser2* t_pBrowser = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pBrowserStream, IID_IWebBrowser2, reinterpret_cast<LPVOID*>(&t_pBrowser));
+		SmartCOMRelease t_scBrowser(t_pBrowser, true);
+		// hack : I'm not really sure if I should both Add and Release ref in this thread, or add in the caller and release in
+		// this callee. I generally guess that the streaming doesn't change ref counts, but if I add in caller and then cannot
+		// destream, ref counts would be off
+		if (FAILED(hr) || !t_pBrowser)
+			return;
+
+		IHTMLDocument2* pDoc = GetDocumentFromBrowser(t_pBrowser); SmartCOMRelease scDoc(pDoc);
 		SetDocTreeWalker(pDoc);
 		ParsePage(pDoc);
-		TRACE(L"%s", L"Leaving OnDocumentComplete\n");
 	}
 	static void DeleteHandles()
 	{
@@ -4636,32 +4652,7 @@ public:
 		Input conditions: a valid pointer to extant IWebBrowser2 interface
 		Return value: returns nullptr on error, or a valid pointer to an extant IHTMLDocument2 interface
 	*/
-	IHTMLDocument2* GetDocumentFromBrowser(IWebBrowser2* pBrowser)
-	{
-		TRACE(L"%s", L"Entering GetDocumentFromBrowser\n");
 
-		IDispatch* pDisp = nullptr;
-		HRESULT hr = pBrowser->get_Document(&pDisp);
-		if(FAILED(hr))
-		{
-			mb(L"Get Document gave an error", L"2804wishgio");
-			TRACE(L"%s", L"Leaving GetDocumentFromBrowser with error result\n");
-			return nullptr;
-		}
-
-		IHTMLDocument2* pDoc = nullptr;
-		hr = pDisp->QueryInterface(IID_IHTMLDocument2, reinterpret_cast<void**>(&pDoc));
-		pDisp->Release();
-		if (FAILED(hr))
-		{
-			MessageBox(NULL, L"Retrieve IHTMLDoc2 gave an error", L"2813suhfgdju", MB_OK);
-			TRACE(L"%s", L"Leaving GetDocumentFromBrowser with error result\n");
-			return nullptr;
-		}
-
-		TRACE(L"%s", L"Leaving GetDocumentFromBrowser\n");
-		return pDoc;
-	}
 	IHTMLEventObj* GetEventFromDocument(IHTMLDocument2* pDoc)
 	{
 		TRACE(L"%s", L"Calling GetEventFromDocument\n");
@@ -4713,51 +4704,29 @@ public:
 	HRESULT _stdcall Invoke(DISPID dispidMember, REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pvarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr)
 	{
 		if (dispidMember == DISPID_HTMLDOCUMENTEVENTS_ONCLICK)
-		{
-			TRACE(L"Handling DISPID_HTMLDOCUMENTEVENTS_ONCLICK");
 			HandleClick();
-			TRACE(L"Handled DISPID_HTMLDOCUMENTEVENTS_ONCLICK");
-		}
-		if (dispidMember == DISPID_HTMLDOCUMENTEVENTS_ONCONTEXTMENU)
-		{
-			TRACE(L"Handling DISPID_HTMLDOCUMENTEVENTS_ONCONTEXTMENU");
+		else if (dispidMember == DISPID_HTMLDOCUMENTEVENTS_ONCONTEXTMENU)
 			HandleRightClick();
-			TRACE(L"Handled DISPID_HTMLDOCUMENTEVENTS_ONCONTEXTMENU");
-		}
 		//if (dispidMember == DISP_UPDATETERMINFO)
-		//{
-		//	mb(L"disp invoke through javascript reached!");
-		//}
 		//if (dispidMember == DISPID_DOWNLOADBEGIN)
 		//if (dispidMember == DISPID_DOWNLOADCOMPLETE)
 		//if (dispidMember == DISPID_NAVIGATECOMPLETE2)
 		//if (dispidMember == DISPID_ONQUIT)
 		//if (dispidMember == DISPID_BEFORENAVIGATE2)
-		if (dispidMember == DISPID_DOCUMENTCOMPLETE)
+		else if (dispidMember == DISPID_DOCUMENTCOMPLETE)
 		{
-			//mb("document complete");
-			IDispatch* pCur = pDispParams->rgvarg[1].pdispVal;
-			if (pCur == pDispBrowser)
+			if (pDispParams->cArgs >= 2 && pDispParams->rgvarg[1].vt == VT_DISPATCH)
 			{
-				IDispatch* pDisp = NULL;
-				HRESULT hr = pBrowser->get_Document(&pDisp);
-				if(FAILED(hr))
+				IDispatch* pCur = pDispParams->rgvarg[1].pdispVal;
+				if (pCur == pDispBrowser)
 				{
-					mb(L"Get Document gave an error", L"378wishgio");
-					return E_UNEXPECTED;
+					LPSTREAM pBrowserStream = nullptr;
+					HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IWebBrowser2, pBrowser, &pBrowserStream);
+					if (SUCCEEDED(hr) && pBrowserStream)
+					{
+						cpThreads.push_back(new std::thread(&LwtBho::OnPageFullyLoaded, this, pBrowserStream));
+					}
 				}
-
-				IHTMLDocument2* pDoc = NULL;
-				hr = pDisp->QueryInterface(IID_IHTMLDocument2, reinterpret_cast<void**>(&pDoc));
-				pDisp->Release();
-				if (FAILED(hr))
-				{
-					mb(L"Retrieve IHTMLDoc2 gave an error", L"385suhfgdju");
-					return E_UNEXPECTED;
-				}
-
-				OnDocumentComplete(pDoc);
-				pDoc->Release();
 			}
 		}
 		return S_OK;
@@ -4824,6 +4793,7 @@ private:
 	_bstr_t bstrUrl;
 	LWTCache* cache;
 	unordered_map<wstring, LWTCache*> cacheMap;
+	vector<std::thread*> cpThreads;
 	// wregex
 	wregex_iterator rend;
 	wregex wWordSansBookmarksWrgx;
@@ -4909,6 +4879,13 @@ inline LwtBho::~LwtBho()
 	for (auto cacheEntry : cacheMap)
 	{
 		delete cacheEntry.second;
+	}
+
+	for (auto pThread : cpThreads)
+	{
+		if (pThread->joinable())
+			pThread->join();
+		delete pThread;
 	}
 }
 

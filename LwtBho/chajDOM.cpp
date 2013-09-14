@@ -319,3 +319,24 @@ HRESULT chaj::DOM::TxtRange_MoveStartByChars(IHTMLTxtRange* pRange, long lngChar
 	return hr;
 
 }
+
+IHTMLDocument2* chaj::DOM::GetDocumentFromBrowser(IWebBrowser2* pBrowser)
+{
+	IDispatch* pDisp = nullptr;
+	HRESULT hr = pBrowser->get_Document(&pDisp); chaj::COM::SmartCOMRelease scDisp(pDisp);
+	if(FAILED(hr) || !pDisp)
+	{
+		TRACE(L"err: 4645sihdf\n");
+		return nullptr;
+	}
+
+	IHTMLDocument2* pDoc = nullptr;
+	hr = pDisp->QueryInterface(IID_IHTMLDocument2, reinterpret_cast<void**>(&pDoc)); // user-Released
+	if (FAILED(hr) || !pDoc)
+	{
+		TRACE(L"err: 4654ihsf");
+		return nullptr;
+	}
+
+	return pDoc;
+}

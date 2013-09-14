@@ -114,10 +114,12 @@ namespace chaj
 		class SmartCOMRelease
 		{
 		public:
-			SmartCOMRelease(IUnknown* pUnknown) : pUnk(pUnknown) {};
-			~SmartCOMRelease() {pUnk->Release();};
+			SmartCOMRelease(IUnknown* pUnknown, bool bAddRef = false) : pUnknown(pUnknown) { if (bAddRef && pUnknown) pUnknown->AddRef();};
+			~SmartCOMRelease() { if (pUnknown) pUnknown->Release();};
 		private:
-			IUnknown* pUnk;
+			SmartCOMRelease(const SmartCOMRelease&){};
+			SmartCOMRelease& operator=(const SmartCOMRelease&){};
+			IUnknown* pUnknown;
 		};
 	}
 }
