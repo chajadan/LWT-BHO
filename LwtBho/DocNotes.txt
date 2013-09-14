@@ -1,0 +1,20 @@
+///Development Documentation///
+
+1)	the file lwtbho.js represents javascript that is injected into pages by this extension
+	it is embedded into the .dll as a resource, grabbed as a string, and placed in the page
+	this is to facilitate ease of coding
+
+///User Documentation///
+
+1) note that we do not store sentences with new terms, which may affect tests and other features
+
+2) the ESC key closes all open dialogs
+
+3) line returns allowed but not natively supported by lwt
+
+4) if necessary, create a DSN with user root and password blank or root, point it at lwt database,
+	and test it. tell about win64 machines having two odbc managers. make sure a mysql driver is installed
+
+5) intended for use as a single user, not concurrent use of multiple users
+
+6) currently supports default database only, a planned change

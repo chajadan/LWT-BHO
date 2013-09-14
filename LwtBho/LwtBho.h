@@ -1805,7 +1805,7 @@ public:
 			if (bWithSpaces == true)
 				wQuery.append(L" %'");
 			else
-				wQuery.append(L"%'");
+				wQuery.append(L"_%'");
 			wQuery.append(L" LIMIT 1)");
 			if (!DoExecuteDirect(_T("677idjfjf"), wQuery))
 				break;
