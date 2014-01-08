@@ -53,11 +53,8 @@ const int MWSpanAltroSize = 7;
 const int MAX_FIELD_WIDTH = 255;
 const wstring wstrNewline(L"&#13;&#10;");
 
-#define nHiddenChunkOpenBookmarkLen 3
 #define LWT_MAXWORDLEN 255
 #define LWT_MAX_MWTERM_LENGTH 9
-extern wstring wHiddenChunkBookmark;
-extern wstring wPTagBookmark;
 extern wstring wStatIntro;
 extern HINSTANCE hInstance;
 extern vector<HANDLE> vDelete;
@@ -76,54 +73,42 @@ struct MainDlgStruct
 	bool bOnLink;
 };
 
-class Token_Word
-{
-public:
-	std::wstring wToken;
-	bool bDigested;
-};
-class Token_Sentence
-{
-public:
-	Token_Sentence(bool bIsDigested) : bDigested(bIsDigested) {}
-	void push_back(wstring wWord, bool bIsDigested = true) {Token_Word tw; tw.wToken = wWord; tw.bDigested = bIsDigested; vWords.push_back(tw);}
-	const wstring& operator[](int i) const {return vWords[i].wToken;}
-	vector<Token_Word> vWords;
-	vector<Token_Word>::size_type size() const {return vWords.size();}
-	bool isWordDigested(int indWord) const {return vWords[indWord].bDigested;}
-	bool bDigested;
-};
-class TokenStruct
-{
-public:
-	const Token_Sentence& operator[](int i) const {return vSentences[i];}
-	vector<Token_Sentence> vSentences;
-	void push_back(Token_Sentence ts) {vSentences.push_back(ts);}
-	void push_back(wstring wNonDigested) {Token_Sentence ts(false); ts.push_back(wNonDigested, false); vSentences.push_back(ts);}
-	vector<Token_Sentence>::size_type size() const {return vSentences.size();}
-};
-
 class LwtBho: public IObjectWithSite, public IDispatch
 {
 	friend class LWTCache;
-	friend class Chunc_CachePageWords;
-
-private:
-
-	struct mwVals
-	{
-		mwVals(wstring wStat, wstring wWC, wstring wTerm) : wStatus(wStat), wWordCount(wWC), wMWTerm(wTerm) {};
-		mwVals(const TermRecord* RecPtr, wstring wWC, wstring wTerm) : pRec(RecPtr), wWordCount(wWC), wMWTerm(wTerm) {};
-		const TermRecord* pRec;
-		wstring wStatus;
-		wstring wWordCount;
-		wstring wMWTerm;
-	};
 
 public:
 	LwtBho();
 	~LwtBho();
 
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv)
+	{
+		if (riid==IID_IUnknown)
+			*ppv=static_cast<LwtBho*>(this);
+		else if (riid==IID_IObjectWithSite)
+			*ppv=static_cast<IObjectWithSite*>(this); 
+		else if (riid==IID_IDispatch)
+			*ppv=static_cast<IDispatch*>(this);
+		else
+			return E_NOINTERFACE;
+
+		AddRef();
+		return S_OK;
+	}
+	ULONG STDMETHODCALLTYPE AddRef() {InterlockedIncrement(&gref); return InterlockedIncrement(&ref);}
+	ULONG STDMETHODCALLTYPE Release() {int tmp=InterlockedDecrement(&ref); if (tmp==0) delete this; InterlockedDecrement(&gref); return tmp;}
+
+	HRESULT STDMETHODCALLTYPE GetTypeInfoCount(unsigned int FAR* pctinfo) {*pctinfo=1; return NOERROR;}
+	HRESULT STDMETHODCALLTYPE GetTypeInfo(unsigned int iTInfo, LCID lcid, ITypeInfo FAR* FAR*  ppTInfo)
+	{
+		return NOERROR;
+	}
+	HRESULT STDMETHODCALLTYPE GetIDsOfNames(REFIID riid, OLECHAR FAR* FAR* rgszNames, unsigned int cNames, LCID lcid, DISPID FAR* rgDispId)
+	{
+		return NOERROR;
+	}
+
+private:
 	void LoadCssFile()
 	{
 		HRSRC rc = ::FindResource(hInstance, MAKEINTRESOURCE(IDR_LWTCSS),
@@ -340,7 +325,7 @@ public:
 
 		pRange->Release();
 	}
-	HRESULT RemoveNodeFromElement(IHTMLElement* pElement)
+	HRESULT RemoveDomNodeByElement(IHTMLElement* pElement)
 	{
 		IHTMLDOMNode* pNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pElement);
 		if (pNode)
@@ -378,7 +363,7 @@ public:
 					IHTMLElement* pSup = nullptr;
 					pParent->get_parentElement(&pSup);
 					assert(pSup);
-					HRESULT hr = RemoveNodeFromElement(pSup);
+					HRESULT hr = RemoveDomNodeByElement(pSup);
 					assert(SUCCEEDED(hr));
 #ifdef _DEBUG
 					if (FAILED(hr))
@@ -474,17 +459,6 @@ public:
 
 		AlterCacheItemStatus(wTerm, wNewStatus);
 		UpdatePageSpans(pDoc, wTerm, wNewStatus);
-	}
-	void InvokeScripts(IHTMLDocument2* pDoc)
-	{
-		IHTMLElement* pBody = GetBodyFromDoc(pDoc);
-		IDOMTreeWalker* pTree = GetTreeWalkerWithFilter(pDoc, pBody, &FilterNodes_Scripts, SHOW_ELEMENT);
-		pBody->Release();
-
-		if (pTree)
-		{
-
-		}
 	}
 	void  UpdatePageSpans2(IHTMLDocument2* pDoc, const wstring& wTerm, const wstring& wNewStatus)
 	{
@@ -849,65 +823,6 @@ public:
 	{
 		return regex_replace(in, wregex(L"([$.?\\^*+()])"), L"\\$1");
 	}
-	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv)
-	{
-		if (riid==IID_IUnknown)
-			*ppv=static_cast<LwtBho*>(this);
-		else if (riid==IID_IObjectWithSite)
-			*ppv=static_cast<IObjectWithSite*>(this); 
-		else if (riid==IID_IDispatch)
-			*ppv=static_cast<IDispatch*>(this);
-		else
-			return E_NOINTERFACE;
-		
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-		AddRef();
-		return S_OK;
-	}
-	ULONG STDMETHODCALLTYPE AddRef() {InterlockedIncrement(&gref); return InterlockedIncrement(&ref);}
-	ULONG STDMETHODCALLTYPE Release() {int tmp=InterlockedDecrement(&ref); if (tmp==0) delete this; InterlockedDecrement(&gref); return tmp;}
-
-	HRESULT STDMETHODCALLTYPE GetTypeInfoCount(unsigned int FAR* pctinfo) {*pctinfo=1; return NOERROR;}
-	HRESULT STDMETHODCALLTYPE GetTypeInfo(unsigned int iTInfo, LCID lcid, ITypeInfo FAR* FAR*  ppTInfo)
-	{
-		return NOERROR;
-	}
-	HRESULT STDMETHODCALLTYPE GetIDsOfNames(REFIID riid, OLECHAR FAR* FAR* rgszNames, unsigned int cNames, LCID lcid, DISPID FAR* rgDispId)
-	{
-		return NOERROR;
-	}
-
-	//wregex_iterator DoWRegexIter(wstring& pattern, wstring& src, wregex::flag_type flags = regex_constants::icase | regex_constants::optimize | regex_constants::ECMAScript)
-	//{
-	//	wregex wrgx(pattern, flags);
-	//	wregex_iterator regit(src.begin(), src.end(), wrgx);
-	//	return regit;
-	//}
-	//void DoWRegexIter2(wregex_iterator& it, wstring& pattern, wstring& src, wregex::flag_type flags = regex_constants::icase | regex_constants::optimize | regex_constants::ECMAScript)
-	//{
-	//	wregex wrgx(pattern, flags);
-	//	it = wregex_iterator(src.begin(), src.end(), wrgx);
-	//	//return regit;
-	//}
-
-	/*
-		TagNotTag
-		Input Condition: no isolated < characters that don't represent a valid html tag, such as in javascript code
-	*/
 	int FindProperCloseTagPos(const wstring& in, int nOpenTagPos)
 	{
 		assert(in.find(L"<", nOpenTagPos) == nOpenTagPos);
@@ -940,42 +855,6 @@ public:
 
 		return -1;
 	}
-	void TagNotTag(vector<wstring>& chunks, wstring& part)
-	{
-		int pos = part.find(L"<"), pos2 = 0;
-		while (pos != wstring::npos)
-		{
-			if (pos != pos2) // some non tag data
-				chunks.push_back(wstring(part, pos2, pos-pos2));
-
-			if (part.find(L"<!--", pos) == pos)
-			{
-				pos2 = part.find(L"-->", pos);
-				pos2 = part.find(L">", pos2);
-			}
-			else
-				pos2 = FindProperCloseTagPos(part, pos);//part.find(L">", pos);
-
-			if (pos2 != wstring::npos)
-			{
-				chunks.push_back(wstring(part, pos, pos2 - pos + 1));
-				pos = part.find(L"<", ++pos2);
-			}
-			else // expected close tag not found
-			{
-				chunks.push_back(wstring(part, pos)); // take the rest of the part from false open tag on
-				pos = pos2;
-			}
-		}
-		if (pos2 != wstring::npos) // 
-			chunks.push_back(wstring(part, pos2));
-		//wregex_iterator regit(part.begin(), part.end(), TagNotTagWrgx);
-		//while (regit != rend)
-		//{
-		//	chunks.push_back(regit->str());
-		//	++regit;
-		//}
-	}
 	bool TagIsSelfClosed(const wstring& wTag)
 	{
 		wstring::size_type pos = wTag.find_last_not_of(L"> ");
@@ -986,191 +865,6 @@ public:
 
 		return true;
 	}
-	void SplitChunksByScript(vector<wstring>& chunks, wstring& wBodyPart)
-	{
-		if (wBodyPart.find(L"script") == wstring::npos)
-			return TagNotTag(chunks, wBodyPart);
-
-		wstring::size_type pos1 = 0, pos2 = 0;
-		bool bOpenScriptContext = false; // have seen open <script> but not yet </script>
-
-		wstring wrgxPtn1 = L"< */? *script.*?>";
-		wregex wrgx1(wrgxPtn1, regex_constants::icase | regex_constants::optimize | regex_constants::ECMAScript);
-		wregex_iterator regScripts(wBodyPart.begin(), wBodyPart.end(), wrgx1);
-
-		if (regScripts == rend) // a script-tagless page
-			return TagNotTag(chunks, wBodyPart);
-
-		int nEnd;
-
-		while (regScripts != rend)
-		{
-			wstring wScript = regScripts->str();
-			if (bOpenScriptContext == true) // make sure we have a true close tag, and not an embedded script within javascript
-				if (wScript.c_str()[wScript.find_first_of(L"/s")] == 's') // '/' did not prcede 's'
-				{
-					regScripts++;
-					continue;
-				}
-			pos2 = wBodyPart.find(wScript, pos1);
-			nEnd = FindProperCloseTagPos(wBodyPart, pos2);
-			if (nEnd-pos2+1 != wScript.size())
-				wScript = wstring(wBodyPart, pos2, nEnd-pos2+1);
-
-			if (pos1 != pos2) // some content prior to the found script tag
-			{
-				if (bOpenScriptContext == true)
-					chunks.push_back(wstring(wBodyPart, pos1, pos2 - pos1));
-				else // this is an open script tag we found, what precedes is not javascript
-					TagNotTag(chunks, wstring(wBodyPart, pos1, pos2 - pos1));
-			}
-			
-			chunks.push_back(wScript);
-
-			pos1 = pos2 + wScript.size();
-			++regScripts;
-			bOpenScriptContext = !bOpenScriptContext;
-			if (bOpenScriptContext && TagIsSelfClosed(wScript))
-				bOpenScriptContext = !bOpenScriptContext;
-		}
-		if (pos1 < wBodyPart.size())
-			TagNotTag(chunks, wstring(wBodyPart, pos1, wBodyPart.size()-pos1));
-	}
-	/*
-		PopulateChunks
-		Exit Condition: no empty string chunks, but 0 chunks is fine
-	*/
-	void SplitChunksByIframe(vector<wstring>& chunks, wstring& wBodyPart)
-	{
-		if (wBodyPart.find(L"iframe") == wstring::npos)
-			return SplitChunksByScript(chunks, wBodyPart);
-
-		wstring::size_type pos1 = 0, pos2 = 0;
-		bool bOpenScriptContext = false; // have seen open <script> but not yet </script>
-
-		wstring wrgxPtn1 = L"< */? *iframe.*?>";
-		wregex wrgx1(wrgxPtn1, regex_constants::icase | regex_constants::optimize | regex_constants::ECMAScript);
-		wregex_iterator regScripts(wBodyPart.begin(), wBodyPart.end(), wrgx1);
-
-		if (regScripts == rend) // a script-tagless page
-			return SplitChunksByScript(chunks, wBodyPart);
-
-		int nEnd;
-
-		while (regScripts != rend)
-		{
-			wstring wScript = regScripts->str();
-			if (bOpenScriptContext == true) // make sure we have a true close tag, and not an embedded script within javascript
-				if (wScript.c_str()[wScript.find_first_of(L"/i")] == 's') // '/' did not prcede 's'
-				{
-					regScripts++;
-					continue;
-				}
-			pos2 = wBodyPart.find(wScript, pos1);
-			nEnd = FindProperCloseTagPos(wBodyPart, pos2);
-			if (nEnd-pos2+1 != wScript.size())
-				wScript = wstring(wBodyPart, pos2, nEnd-pos2+1);
-
-			if (pos1 != pos2) // some content prior to the found script tag
-			{
-				if (bOpenScriptContext == true)
-					chunks.push_back(wstring(wBodyPart, pos1, pos2 - pos1));
-				else // this is an open script tag we found, what precedes is not javascript
-					SplitChunksByScript(chunks, wstring(wBodyPart, pos1, pos2 - pos1));
-			}
-			
-			chunks.push_back(wScript);
-
-			pos1 = pos2 + wScript.size();
-			++regScripts;
-			bOpenScriptContext = !bOpenScriptContext;
-			if (bOpenScriptContext && TagIsSelfClosed(wScript))
-				bOpenScriptContext = !bOpenScriptContext;
-		}
-		if (pos1 < wBodyPart.size())
-			SplitChunksByScript(chunks, wstring(wBodyPart, pos1, wBodyPart.size()-pos1));
-	}
-
-	void SplitChunksByComment(vector<wstring>& chunks, wstring& wBodyPart)
-	{
-		// this code does not support html that contains elements resembling comments like:
-		// <input type="text" value="<!--this will in fact show to user correctly: not a comment-->" />
-
-		int pos1, pos2;
-
-		for (pos1 = 0, pos2 = wBodyPart.find(L"<!--", pos1); pos2 != wstring::npos; pos2 = wBodyPart.find(L"<!--", pos1))
-		{
-			if (pos2 != pos1)
-				SplitChunksByIframe(chunks, wstring(wBodyPart, pos1, pos2 - pos1));
-
-			pos1 = wBodyPart.find(L"-->", pos2) + 3;
-			chunks.push_back(wstring(wBodyPart, pos2, pos1 - pos2));
-		}
-
-		SplitChunksByIframe(chunks, wstring(wBodyPart, pos1));
-	}
-	void PopulateChunks(vector<wstring>& chunks, wstring& wFullBody)
-	{
-		SplitChunksByComment(chunks, wFullBody);
-	}
-
-	/* WARNING */// the function IsChunkVisible is highly dependent a relationship among its lines of code
-	// alter only with understanding
-	bool IsChunkVisible(const vector<wstring>& chunks, int nChunkIndex)
-	{
-		if (chunks[nChunkIndex].c_str()[0] == L'<') // chuck definitely tag data
-			return false;
-
-		if (nChunkIndex == 0) // the following false case will not apply
-			return true;
-
-		if (TagIsSelfClosed(chunks[nChunkIndex-1]))
-			return true;
-
-		if (wcsncmp(chunks[nChunkIndex-1].c_str(), L"<script", 7) == 0 || \
-			wcsncmp(chunks[nChunkIndex-1].c_str(), L"<style", 6) == 0 || \
-			wcsncmp(chunks[nChunkIndex-1].c_str(), L"<iframe", 7) == 0 || \
-			wcsncmp(chunks[nChunkIndex-1].c_str(), L"<noframe", 8) == 0 || \
-			wcsncmp(chunks[nChunkIndex-1].c_str(), L"<textarea", 9) == 0)
-			return false;
-			
-		return true;
-	}
-	bool ChunkIsPTag(vector<wstring>& chunks, int nChunkIndex)
-	{
-		wstring wrgxPtn = L"</?[ ]*p[ >/]";
-		wregex wrgx(wrgxPtn, regex_constants::icase | regex_constants::ECMAScript);
-		wregex_iterator regit(chunks[nChunkIndex].begin(), chunks[nChunkIndex].end(), wrgx);// = DoWRegexIter(wrgx, chunks[nChunkIndex]);
-		wregex_iterator rend;
-		if (regit != rend)
-			return true;
-		else
-			return false;
-	}
-
-	wstring GetVisibleBodyWithTagBookmarks(vector<wstring>& chunks)
-	{
-		wstring wVisibleBody;
-		bool bIsVisibleChunk; // must be properly set each loop iteration
-
-		for (decltype(chunks.size()) i = 0; i < chunks.size(); ++i)
-		{
-			bIsVisibleChunk = IsChunkVisible(chunks, i);
-
-			if (bIsVisibleChunk == true)
-				wVisibleBody += chunks[i];
-			else
-			{
-				if (ChunkIsPTag(chunks, i) == true)
-					wVisibleBody += wPTagBookmark + to_wstring(i) + wPTagBookmark;
-				else
-					wVisibleBody += wHiddenChunkBookmark + to_wstring(i) + wHiddenChunkBookmark;
-			}
-		}
-
-		return wVisibleBody;
-	}
-
 	void GetEntityMap(std::map<std::wstring,wchar_t>& entities)
 	{
 		entities[L"quot"]=(wchar_t)0x0022;
@@ -1531,129 +1225,6 @@ public:
 			//}
 		}
 	}
-
-	void GetListOfWordsLC(vector<wstring>& vList, wstring& src)
-	{
-		wstring rgxPtn = L"[";
-		rgxPtn += WordChars + L"]+";
-		wregex wrgx(rgxPtn, regex_constants::icase | regex_constants::optimize | regex_constants::ECMAScript);
-		wregex_iterator regit(src.begin(), src.end(), wrgx), rend;
-		//for (wregex_iterator regit = DoWRegexIter(rgxPtn, src), rend; regit != rend; ++regit)
-		while(regit != rend)
-		{
-			vList.push_back(chaj::str::wstring_tolower(regit->str()));
-			++regit;
-		}
-	}
-	void ParseSentencesToMWTerms(list<wstring>& lstItems, const TokenStruct& tokens)
-	{
-		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
-		{
-			if (tokens[i].bDigested == false)
-				continue;
-
-			for (vector<Token_Word>::size_type j = 0; j < tokens[i].size(); ++j)
-			{
-				if (tokens[i].isWordDigested(j) == false)
-					continue;
-
-				wstring vTerm;
-				int nSkipCount = 0;
-
-				for (vector<Token_Word>::size_type k = j; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
-				{
-					if (tokens[i].isWordDigested(k) == false)
-					{
-						++nSkipCount;
-						continue;
-					}
-
-					if (k > j && bWithSpaces == true)
-						vTerm.append(L" ");
-					vTerm.append(tokens[i][k]);
-
-					if (k > j)
-						lstItems.push_back(vTerm);
-
-					//assert(cache->count(tokens[i][j]) == 1);
-					//TermRecord rec = cache[tokens[i][j]];
-					//if (rec.nTermsBeyond == 0)
-					//	break;
-				}
-			}
-		}
-		lstItems.sort();
-		lstItems.unique();
-	}
-	// the only if means only if the potential term might be in the LWT words table
-	//void ParseSentencesToMWTermsOnlyIf(const TokenStruct& tknCanonical)
-	//{
-	//	for (int i = 0; i < ts.size(); ++i)
-	//	{
-	//		if (ts[i].bDigested == false)
-	//			continue;
-
-	//		for (int j = 0; j < ts[i].size(); ++j)
-	//		{
-	//			if (ts[i].isWordDigested(j) == false)
-	//				continue;
-
-	//			wstring vTerm;
-	//			int nSkipCount = 0;
-
-	//			for (int k = j; k < j + 9 + nSkipCount && k < ts[i].size(); ++k)
-	//			{
-	//				if (ts[i].isWordDigested(k) == false)
-	//				{
-	//					++nSkipCount;
-	//					continue;
-	//				}
-
-	//				wstring wWord = WordSansBookmarks(ts[i][k]);
-
-	//				if (k > j && bWithSpaces == true)
-	//					vTerm.append(L" ");
-	//				vTerm += wWord;
-
-	//				if (k > j)
-	//					vTerms.push_back(vTerm);
-
-	//				assert(cache->count(wWord) == 1);
-	//				TermRecord rec = cache[wWord];
-	//				if (rec.nTermsBeyond == 0)
-	//					break;
-	//			}
-	//		}
-	//	}
-	//}
-	//// the only if means only if the potential term might be in the LWT words table
-	//void ParseSentencesToMWTermsOnlyIf_SansBookmarks(vector<wstring> vTerms, const vector<vector<wstring>>& vSentences)
-	//{
-	//	for (int i = 0; i < vSentences.size(); ++i)
-	//	{
-	//		for (int j = 0; j < vSentences[i].size(); ++j)
-	//		{
-	//			wstring vTerm;
-	//			for (int k = j; k < j + 9 && k < vSentences[i].size(); ++k)
-	//			{
-	//				if (k > j && bWithSpaces == true)
-	//					vTerm.append(L" ");
-	//				
-	//				wstring wWord = WordSansBookmarks(vSentences[i][k]);
-
-	//				vTerm += wWord;
-
-	//				if (k > 0)
-	//					vTerms.push_back(vTerm);
-
-	//				TermRecord rec = cache[wWord];
-	//				if (rec.nTermsBeyond == 0)
-	//					break;
-	//			}
-	//		}
-	//	}
-	//}
-
 	void GetNonDuplicatesSubset(vector<wstring>& vOut, const vector<wstring>& vIn)
 	{
 		list<wstring> lstNoDups(vIn.begin(), vIn.end());
@@ -1688,69 +1259,6 @@ public:
 				it->second.nTermsBeyond = tStmt.field(1).as_long() > 0 ? 1 : 0;
 
 			tStmt.free_results();
-		}
-	}
-	void UpdateCaches(const TokenStruct& tknCanonical)
-	{
-		list<wstring> lstUncachedWords = GetUncachedTokens(tknCanonical);
-		EnsureRecordEntryForEachWord(lstUncachedWords);
-		//UpdateTerminationCache(vWords);
-		EnsureRecordEntryForEachMWTerm(tknCanonical);
-	}
-	//void UpdateCaches(const vector<vector<wstring>>& vSentencesVWords)
-	//{
-	//	vector<wstring> vWords;
-	//	SentenceWordsToWordsMinusBookmarks(vWords, vSentencesVWords);
-
-	//	EnsureRecordEntryForEachWord(vWords);
-	//	UpdateTerminationCache(vWords);
-	//	EnsureRecordEntryForEachMWTerm(vSentencesVWords);
-	//}
-	void InitializeWregexes()
-	{
-		wstring wWordSansBookmarksWrgxPtn;
-		wWordSansBookmarksWrgxPtn.append(L"~.~[0-9]+~.~");
-		//wWordSansBookmarksWrgxPtn.append(L"(?:");
-		//wWordSansBookmarksWrgxPtn.append(wHiddenChunkBookmark);
-		//wWordSansBookmarksWrgxPtn.append(L"|");
-		//wWordSansBookmarksWrgxPtn.append(wPTagBookmark);
-		//wWordSansBookmarksWrgxPtn.append(L")[0-9]+(?:");
-		//wWordSansBookmarksWrgxPtn.append(wHiddenChunkBookmark);
-		//wWordSansBookmarksWrgxPtn.append(L"|");
-		//wWordSansBookmarksWrgxPtn.append(wPTagBookmark);
-		//wWordSansBookmarksWrgxPtn.append(L")");
-		wWordSansBookmarksWrgx.assign(wWordSansBookmarksWrgxPtn, regex_constants::optimize | regex_constants::ECMAScript);
-
-		TagNotTagWrgx.assign(L"<!--.*?-->|<.*?>|[^<]+", regex_constants::optimize | regex_constants::ECMAScript);
-	}
-	wstring WordSansBookmarks(const wstring& in)
-	{
-		wstring out(in);
-		wregex_iterator regit(in.begin(), in.end(), wWordSansBookmarksWrgx);
-
-		while (regit != rend)
-		{
-			wstring wMatch = regit->str();
-			out.replace(out.find(wMatch), wMatch.size(), L"");
-			++regit;
-		}
-
-		return out;
-	}
-	void SentenceWordsToWordsMinusBookmarks(vector<wstring>& words, TokenStruct& tokens)
-	{
-		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
-		{
-			if (tokens[i].bDigested == false)
-				continue;
-
-			for (vector<Token_Word>::size_type j = 0; j < tokens[i].size(); ++j)
-			{
-				if (tokens[i].isWordDigested(j) == false)
-					continue;
-
-				words.push_back(WordSansBookmarks(tokens[i][j]));
-			}
 		}
 	}
 	wstring EscapeSQLQueryValue(const wstring& wQuery)
@@ -1853,28 +1361,6 @@ public:
 			LeaveCriticalSection(&CS_UseDBConn);
 		}
 	}
-	list<wstring> GetUncachedTokens(const TokenStruct& tokens)
-	{
-		list<wstring> out;
-		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
-		{
-			if (tokens[i].bDigested)
-			{
-				for (vector<Token_Word>::size_type j = 0; j < tokens[i].size(); ++j)
-				{
-					if (tokens[i].isWordDigested(j))
-					{
-						unordered_map<wstring,TermRecord>::const_iterator it = cache->find(tokens[i][j]);
-						if (it == cache->end())
-							out.push_back(tokens[i][j]);
-					}
-				}
-			}
-		}
-		out.sort();
-		out.unique();
-		return out;
-	}
 	void EnsureRecordEntryForEachWord(list<wstring>& cWords)
 	{
 		const int MAX_MYSQL_INLIST_LEN = 2000;
@@ -1888,82 +1374,6 @@ public:
 	{
 		for (vector<wstring>::size_type i = 0; i < v.size(); ++i)
 			mb(v[i]);
-	}
-	void EnsureRecordEntryForEachMWTerm(const TokenStruct& tknCanonical)
-	{
-		list<wstring> lstTerms;
-		ParseSentencesToMWTerms(lstTerms, tknCanonical);
-
-		//vector<wstring> vUncachedMWTerms;
-		//GetUncachedSubset(vUncachedMWTerms, vTerms);
-
-		const int nMaxMWTermsPerInList = 500;
-		CacheDBHitsWithListRemove(lstTerms, nMaxMWTermsPerInList, true);
-	}
-
-	/*
-		GetBodyContent
-		Input conditions: pBody is NULL, pDoc is not NULL
-		Exit condition: pDoc pointer equal to entrance value and has not had Release called
-		If successful, pBody non-NULL
-	*/
-	void GetBodyContent(wstring& wBody, IHTMLElement*& pBody, IHTMLDocument2* pDoc)
-	{
-		wBody = L"";
-		if (pBody != NULL || pDoc == NULL)
-			return;
-		
-		IConnectionPointContainer* aCPC;
-		HRESULT hr = pDoc->QueryInterface(IID_IConnectionPointContainer, (void**)&aCPC);
-		if (FAILED(hr))
-		{
-			mb(_T("FindDocCPC fail"), _T("260suhdhf"));
-			return;
-		}
-
-		IConnectionPoint* pHDEv2;
-		hr = aCPC->FindConnectionPoint(DIID_HTMLDocumentEvents, &pHDEv2);
-		aCPC->Release();
-		if (FAILED(hr))
-		{
-			mb(_T("Could not find a place to register a click listener"), _T("267sezhdu -- FindHDEv fail"));
-			return;
-		}
-
-		if (pHDEv != pHDEv2)
-		{
-			if (pHDEv != NULL)
-			{
-				pHDEv->Unadvise(Cookie_pHDev);
-				pHDEv->Release();
-			}
-		
-			pHDEv = pHDEv2;
-			hr = pHDEv->Advise(reinterpret_cast<IDispatch*>(this), &Cookie_pHDev);
-		}
-		else
-			pHDEv2->Release();
-		if (FAILED(hr))
-			mb("Error. Will not perceive mouse clicks on this page. Will try to annotate anyway.", "1000duwksm");
-
-		hr = pDoc->get_body(&pBody);
-		if (!pBody || FAILED(hr))
-		{
-			return;
-		}
-		
-		//get body content, exluding <body> tags
-		_bstr_t bstrBodyContent;
-		hr = pBody->get_innerHTML(bstrBodyContent.GetAddress());
-		if (FAILED(hr))
-		{
-			mb(L"get_innerHTML gave an error", L"137werts");
-			return;
-		}
-
-		if (bstrBodyContent.length())
-			wBody = to_wstring(bstrBodyContent.GetBSTR());
-
 	}
 	void ReceiveEvents(IHTMLDocument2* pDoc)
 	{
@@ -2002,388 +1412,6 @@ public:
 			pHDEv2->Release();
 		if (FAILED(hr))
 			mb("Error. Will not perceive mouse clicks on this page. Will try to annotate anyway.", "1000duwksm");
-	}
-	void PSTS_BookmarkLevel(TokenStruct& tokens, const wstring& in)
-	{
-		wstring::size_type pos1 = 0, pos2 = 0;
-		Token_Sentence ts(true);
-		
-		wstring regPtn;
-		regPtn.append(L"(?:~[-ALP]~");
-		regPtn.append(L"[0-9]+");
-		regPtn.append(L"~[-ALP]~)+");
-
-		wregex wrgx(regPtn, regex_constants::ECMAScript);
-		wregex_iterator regit(in.begin(), in.end(), wrgx);
-		wregex_iterator rend;
-
-		while (regit != rend)
-		{
-			wstring wBookmarks = regit->str();
-			assert(pos1 != wstring::npos && pos1 >= 0 && pos1 < in.size());
-			pos2 = in.find(wBookmarks, pos1);
-			assert(pos2 != wstring::npos); // regex pattern just found should be found again
-			if (pos2 != pos1) // non-bookmark data found in sentence, try to parse as words
-				PSTS_WordLevel2(ts, wstring(in, pos1, pos2-pos1));
-			pos1 = pos2 + wBookmarks.size();
-
-			ts.push_back(wBookmarks, false);
-
-			++regit;
-		}
-		if (pos1 == 0) // no bookmarks present
-		{
-			PSTS_WordLevel2(ts, in);
-			tokens.push_back(ts);
-		}
-		else
-		{
-			if (pos1 < in.size()) // we have data left after final bookmark
-				PSTS_WordLevel2(ts, wstring(in, pos1, in.size()-pos1));
-
-			tokens.push_back(ts);
-		}
-
-	}
-	void PSTS_WordLevel2(Token_Sentence& ts, const wstring& in)
-	{
-		wstring::size_type pos1 = 0, pos2 = 0;
-
-		// pattern: (?:(?:~-~#~-~)*[aWordChar])(?:~-~#~-~|[aWordChar])*
-		// regex pattern regPtn ensures that it returns a true word (contains at least one lwt defined word character)
-		// regPtns also ensures that if ~ is considered a valid wordChar, we won't end up at - and choke on a bookmark tag,
-		// i.e. it eats whole bookmarks first at each comparison point, and it why the second appearance of [aWordChar]
-		// is not [aWordChar]+
-		wstring regPtn;
-		regPtn.append(L"[");
-		regPtn += WordChars;
-		regPtn.append(L"]");
-		if (bWithSpaces)
-		{
-			regPtn.append(L"+");
-		}
-
-		wregex wrgx(regPtn, regex_constants::icase | regex_constants::ECMAScript);
-		wregex_iterator regit(in.begin(), in.end(), wrgx);
-		wregex_iterator rend;
-
-		while (regit != rend)
-		{
-			wstring wWord = regit->str();
-			assert(pos1 != wstring::npos && pos1 >= 0 && pos1 < in.size());
-			pos2 = in.find(wWord, pos1);
-			assert(pos2 != wstring::npos); // regex pattern just found should be found again
-			if (pos2 != pos1) // non-word data found in sentence
-				ts.push_back(wstring(in, pos1, pos2-pos1), false);
-			pos1 = pos2 + wWord.size();
-			
-			if (bWithSpaces)
-				ts.push_back(wWord);
-			else
-			{
-				for (wstring::size_type i = 0; i < wWord.size(); ++i)
-					ts.push_back(wstring(wWord, i, 1));
-			}
-
-			++regit;
-		}
-		if (pos1 == 0) // only non-digest data in this sentence
-		{
-			ts.push_back(in, false);
-		}
-		else
-		{
-			if (pos1 < in.size()) // we have data left in the sentence we received that contains no words
-				ts.push_back(wstring(in, pos1, in.size()-pos1), false);
-		}
-
-	}
-	void PSTS_WordLevel(TokenStruct& tokens, const wstring& in)
-	{
-		wstring::size_type pos1 = 0, pos2 = 0;
-		Token_Sentence ts(true);
-
-		// pattern: (?:(?:~-~#~-~)*[aWordChar])(?:~-~#~-~|[aWordChar])*
-		// regex pattern regPtn ensures that it returns a true word (contains at least one lwt defined word character)
-		// regPtns also ensures that if ~ is considered a valid wordChar, we won't end up at - and choke on a bookmark tag,
-		// i.e. it eats whole bookmarks first at each comparison point, and it why the second appearance of [aWordChar]
-		// is not [aWordChar]+
-		wstring regPtn;
-		if (bWithSpaces)
-		{
-			regPtn.append(L"(?:(?:");
-			regPtn += wHiddenChunkBookmark;
-			regPtn.append(L"[0-9]+");
-			regPtn += wHiddenChunkBookmark;
-			regPtn.append(L")*[");
-			regPtn += WordChars;
-			regPtn.append(L"]?)(?:");
-			regPtn += wHiddenChunkBookmark;
-			regPtn.append(L"[0-9]+");
-			regPtn += wHiddenChunkBookmark;
-			regPtn.append(L"|[");
-			regPtn += WordChars;
-			regPtn.append(L"])*");
-		}
-		else
-		{
-			regPtn.append(L"[");
-			regPtn += WordChars;
-			regPtn.append(L"]");
-		}
-
-		//wstring sentLC = wstring_tolower(in);	
-		wregex wrgx(regPtn, regex_constants::icase | regex_constants::ECMAScript);
-		//wregex_iterator regit(sentLC.begin(), sentLC.end(), wrgx);
-		wregex_iterator regit(in.begin(), in.end(), wrgx);
-		wregex_iterator rend;
-		int i = tokens.size();
-		int ijk = 0;
-
-		while (regit != rend)
-		{
-			wstring wWord = regit->str();
-			assert(pos1 != wstring::npos && pos1 >= 0 && pos1 < in.size());
-			pos2 = in.find(wWord, pos1);
-			assert(pos2 != wstring::npos); // regex pattern just found should be found again
-			if (pos2 != pos1) // non-word data found in sentence
-				ts.push_back(wstring(in, pos1, pos2-pos1), false);
-			pos1 = pos2 + wWord.size();
-			
-			if (bWithSpaces)
-				ts.push_back(wWord);
-			else
-			{
-				for (wstring::size_type i = 0; i < wWord.size(); ++i)
-					ts.push_back(wstring(wWord, i, 1));
-			}
-
-			++regit;
-		}
-		if (pos1 == 0) // only non-digest data in this sentence
-		{
-			ts.push_back(in, false);
-			tokens.push_back(ts);
-		}
-		else
-		{
-			if (pos1 < in.size()) // we have data left in the sentence we received that contains no words
-				ts.push_back(wstring(in, pos1, in.size()-pos1), false);
-
-			tokens.push_back(ts);
-		}
-
-	}
-	void PSTS_LwtSentenceLevel(TokenStruct& tokens, const wstring& in)
-	{
-		wstring::size_type pos1 = 0, pos2 = 0;
-
-		wstring rgxPtn = L"[^";
-		rgxPtn += SentDelims + L"]+";
-		wregex wrgx(rgxPtn);
-		wregex_iterator regit(in.begin(), in.end(), wrgx);
-		wregex_iterator rend;
-		while (regit != rend)
-		{
-			wstring wSentence = regit->str();
-
-			assert(pos1 != wstring::npos && pos1 >= 0 && pos1 < in.size()); 
-			// pos1 != wstring::npos because that implies something found in the wregex wasn't again found in the src it was applied to
-			// pos1 >= 0 because we set it to 0 and then only ever add, so just logially, if it's < 0, we didn't intend for that
-			// pos1 < src.size() because the wregex_iterator should fair the while loop if we were ready to look beyond src length
-			pos2 = in.find(wSentence, pos1);
-			assert(pos2 != wstring::npos);
-			// regex pattern just found should be found again
-			if (pos2 != pos1) // there is a non-digested sentence-level token present
-				tokens.push_back(wstring(in, pos1, pos2 - pos1));
-			pos1 = pos2 + wSentence.size();
-
-			//PSTS_WordLevel(tokens, wSentence);
-			PSTS_BookmarkLevel(tokens, wSentence);
-
-			++regit;
-		}
-		if (pos1 == 0) // no parseable sentences in src, all non-digested and passed through
-		{
-			tokens.push_back(in);
-		}
-		else
-		{
-			if (pos1 < in.size())
-				tokens.push_back(wstring(in, pos1, in.size()-pos1));
-		}
-	}
-	void PSTS_PTagLevel(TokenStruct& tokens, const wstring& in)
-	{
-		wstring wPat = wPTagBookmark + L"[0-9]+";
-		wPat += wPTagBookmark;
-		wregex wrgx(wPat);
-		wregex_iterator regit(in.begin(), in.end(), wrgx), rend;
-		wstring::size_type pos1 = 0, pos2 = 0;
-		if (regit == rend)
-			return PSTS_LwtSentenceLevel(tokens, in);
-		while (regit != rend)
-		{
-			wstring wPTag = regit->str();
-			pos2 = in.find(wPTag, pos1);
-			if (pos1 != pos2)
-				PSTS_LwtSentenceLevel(tokens, wstring(in, pos1, pos2-pos1));
-			tokens.push_back(wPTag); // just push <P> tag onto token list at sentence level as not digested data
-			pos1 = pos2 + wPTag.size();
-			++regit;
-		}
-		if (pos1 < in.size())
-		{
-			PSTS_LwtSentenceLevel(tokens, wstring(in, pos1, in.size()-pos1));
-		}
-	}
-	void ParseIntoSentencesAsTokenStruct(TokenStruct& tokens, wstring& src)
-	{
-		TRACE(L"%s", L"Calling ParseIntoSentencesAsTokenStruct\n");
-		PSTS_PTagLevel(tokens, src);
-		assert(tokens.vSentences.size() > 0);
-		TRACE(L"%s", L"Leaving ParseIntoSentencesAsTokenStruct\n");
-	}
-	void ParseIntoSentencesAsWordList(vector<vector<wstring>> vSentencesVWords, wstring& src)
-	{
-		// pattern: (acceptable_sub_sequence|(?!~P~#~P~)[^a_sentence_separactor_char])+
-		wstring rgxPtn = L"(";
-		rgxPtn += SentDelimExcepts + L"|(?!";
-		rgxPtn += wPTagBookmark + L"[0-9]+";
-		rgxPtn += wPTagBookmark + L")[^";
-		rgxPtn += SentDelims + L"])+";
-		wregex wrgx(rgxPtn, regex_constants::icase | regex_constants::optimize | regex_constants::ECMAScript);
-		wregex_iterator regit(src.begin(), src.end(), wrgx), rend;
-		//for (wregex_iterator regit = DoWRegexIter(rgxPtn, src), rend; regit != rend; ++regit)
-		while (regit != rend)
-		{
-			wstring wSentence = regit->str();
-			vector<wstring> vWords;
-			// pattern: ((~-~#~-~)*[aWordChar])(~-~#~-~|[aWordChar])*
-			// regex pattern regPtn2 ensures that it returns a true word (contains at least one lwt defined word character)
-			// regPtns also ensures that if ~ is considered a valid wordChar, we won't end up at - and choke on a bookmark tag,
-			// i.e. it eats whole bookmarks first at each comparison point, and it why the second appearance of [aWordChar]
-			// is not [aWordChar]+
-			wstring regPtn2 = L"((";
-			regPtn2 += wHiddenChunkBookmark;
-			regPtn2.append(L"[0-9]+");
-			regPtn2 += wHiddenChunkBookmark;
-			regPtn2.append(L")*[");
-			regPtn2 += WordChars;
-			regPtn2.append(L"])(");
-			regPtn2 += wHiddenChunkBookmark;
-			regPtn2.append(L"[0-9]+");
-			regPtn2 += wHiddenChunkBookmark;
-			regPtn2.append(L"|[");
-			regPtn2 += WordChars;
-			regPtn2.append(L"])*");
-			wregex wrgx(regPtn2, regex_constants::icase | regex_constants::optimize | regex_constants::ECMAScript);
-			wstring wSLC = chaj::str::wstring_tolower(wSentence);
-			wregex_iterator regit2(wSLC.begin(), wSLC.end(), wrgx);
-			//for (wregex_iterator regit2 = DoWRegexIter(regPtn2, wstring_tolower(wSentence)); regit2 != rend; ++regit2)
-			while(regit2 != rend)
-			{
-				vWords.push_back(regit2->str());
-				++regit2;
-			}
-			vSentencesVWords.push_back(vWords);
-
-			++regit;
-		}
-	}
-	void RestorePTagBookmarks(wstring& in, const vector<wstring>& chunks)
-	{
-		wstring out(in);
-		int pos = 0;
-
-		wstring wrgx = wPTagBookmark + L"[0-9]+";
-		wrgx += wPTagBookmark;
-		wregex wr(wrgx, regex_constants::optimize | regex_constants::ECMAScript);
-		wregex_iterator regit(in.begin(), in.end(), wr);// = DoWRegexIter(wrgx, in);
-		wregex_iterator rend;
-
-		while (regit != rend)
-		{
-			wstring wBookmark = regit->str();
-			wstring wChunkNum(wBookmark, nHiddenChunkOpenBookmarkLen, wBookmark.size()-(2*nHiddenChunkOpenBookmarkLen));
-			int nChunkNum = 0;
-			try
-			{
-				nChunkNum = stoi(wChunkNum);
-			}
-			catch (const std::invalid_argument&)
-			{
-				++regit;
-				continue;
-			}
-			
-			pos = out.find(wBookmark, pos);
-			assert(pos != wstring::npos);
-			out.replace(pos, wBookmark.size(), chunks[nChunkNum]);
-			++pos;
-			++regit;
-		}
-
-		in = out;
-	}
-	void RestoreAllBookmarks(wstring& in, const vector<wstring>& chunks)
-	{
-		wstring out(in);
-		int pos = 0;
-
-		RestorePTagBookmarks(out, chunks);
-
-		wstring wrgx = wHiddenChunkBookmark + L"[0-9]+";
-		wrgx += wHiddenChunkBookmark;
-		wregex wr(wrgx, regex_constants::optimize | regex_constants::ECMAScript);
-		wregex_iterator regit(in.begin(), in.end(), wr);// = DoWRegexIter(wrgx, in);
-		wregex_iterator rend;
-
-		while (regit != rend)
-		{
-			wstring wBookmark = regit->str();
-			wstring wChunkNum(wBookmark, nHiddenChunkOpenBookmarkLen, wBookmark.size()-(2*nHiddenChunkOpenBookmarkLen));
-			int nChunkNum = 0;
-			try
-			{
-				nChunkNum = stoi(wChunkNum);
-			}
-			catch (const std::invalid_argument&)
-			{
-				++regit;
-				continue;
-			}
-			
-			pos = out.find(wBookmark, pos);
-			assert(pos != wstring::npos);
-			out.replace(pos, wBookmark.size(), chunks[nChunkNum]);
-			++pos;
-			++regit;
-		}
-
-		wstring_replaceAll(out, L"~A~0~A~", L"&amp;");
-		wstring_replaceAll(out, L"~L~0~L~", L"&lt;");
-		in = out;
-	}
-	void AppendWordSpan(wstring& out, const wstring& wStatus, const wstring& wWordOrigFormat, const wstring& wWordNoBookmarks, const wstring& wWordCanonical)
-	{
-		int loc = wWordOrigFormat.find(wWordNoBookmarks);
-		if (loc == wstring::npos)
-			out.append(wWordOrigFormat);
-		else
-		{
-			if (loc > 0)
-				out.append(wstring(wWordOrigFormat, 0, loc));
-			out.append(L"<span class=\"lwtStat");
-			out += wStatus;
-			out.append(L"\" lwtTerm=\"");
-			out.append(wWordCanonical);
-			out.append(L"\">");
-			out.append(wWordNoBookmarks);
-			out.append(L"</span>");
-			if (wWordOrigFormat.size() > loc + wWordNoBookmarks.size())
-					out.append(wstring(wWordOrigFormat, loc + wWordNoBookmarks.size()));
-		}
 	}
 	void AppendSoloWordSpan(wstring& out, const wstring& wAsAppended, const wstring& wWordCanonical, const TermRecord* pRec)
 	{
@@ -2460,214 +1488,6 @@ public:
 			pNewScriptNode->Release();
 		}
 	}
-	/*
-	AppendAnnotatedContent_MaintainBookmarks
-	Input Condition: all words in vSentencesVWords are in the cache container
-	*/
-	void AppendAnnotatedContent_MaintainBookmarks
-	(wstring& out, const TokenStruct& tokens, const TokenStruct& tknWithout, const TokenStruct& tknCanonical)
-	{
-		TRACE(L"%s", L"Calling AppendAnnotatedContent_MaintainBookmarks\n");
-		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
-		{
-			if (tokens[i].bDigested == false)
-			{
-				out.append(tokens[i][0]);
-				continue;
-			}
-
-			out.append(L"<span class=\"lwtSent\"></span>");
-
-			for (vector<Token_Word>::size_type j = 0; j < tokens[i].size(); ++j)
-			{
-				if (tokens[i].isWordDigested(j) == false)
-				{
-					out.append(tokens[i][j]);
-					continue;
-				}
-
-				unordered_map<wstring,TermRecord>::const_iterator it = cache->find(tknCanonical[i][j]);
-				assert(it != cache->end()); // there should always be a result
-			
-				//prepend any multiword term spans that start at this word
-				if (it->second.nTermsBeyond != 0) //the term participates in multiwords
-				{
-					struct mwVals
-					{
-						mwVals(wstring wStat, wstring wWC, wstring wTerm) : wStatus(wStat), wWordCount(wWC), wMWTerm(wTerm) {};
-						wstring wStatus;
-						wstring wWordCount;
-						wstring wMWTerm;
-					};
-
-					wstring curTerm = tknCanonical[i][j];
-					if (usetCacheMWFragments.count(curTerm) != 0) //this terms starts some MWTerm
-					{
-
-						stack<mwVals> stkMWTerms;
-						unsigned int nSkipCount = 0;
-						// gather a stack of term statuses for tracked multiword terms that start at this word
-						for (vector<Token_Word>::size_type k = j + 1; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
-						{
-							if (tokens[i].isWordDigested(k) == false)
-							{
-								++nSkipCount;
-								continue;
-							}
-
-							if (bWithSpaces == true)
-								curTerm.append(L" ");
-							curTerm += tknCanonical[i][k];
-
-							if (usetCacheMWFragments.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
-								break;
-
-							unordered_map<wstring,TermRecord>::const_iterator it = cache->find(curTerm);
-							if (it != cache->end())
-								stkMWTerms.push(mwVals(it->second.wStatus, to_wstring(k-j+1-nSkipCount), curTerm));
-						}
-
-						// append span tags for multiword terms, from longest to short
-						while(stkMWTerms.size() > 0)
-						{
-							mwVals mwVCur = stkMWTerms.top();
-							stkMWTerms.pop();
-							out.append(L"<sup><span class=\"lwtStat");
-							out += mwVCur.wStatus;
-							out.append(L"\" lwtTerm=\"");
-							out.append(mwVCur.wMWTerm);
-							out.append(L"\">");
-							out += mwVCur.wWordCount;
-							out.append(L"</span></sup>");
-						}
-					}
-				}
-
-				AppendWordSpan(out, it->second.wStatus, tokens[i][j], tknWithout[i][j], tknCanonical[i][j]);
-			}
-		}
-		TRACE(L"%s", L"Leaving AppendAnnotatedContent_MaintainBookmarks\n");
-	}
-	///*
-	//AppendAnnotatedContent_MaintainBookmarks
-	//Input Condition: all words in vSentencesVWords are in the cache container
-	//*/
-	//void AppendAnnotatedContent_MaintainBookmarks(wstring& out, const vector<vector<wstring>>& vSentencesVWords, const vector<wstring>& chunks)
-	//{
-	//	for (int indSentence = 0; indSentence < vSentencesVWords.size(); ++indSentence)
-	//	{
-	//		out.append(L"<span class=\"lwtSent\">");
-
-	//		for (int indWord = 0; indWord < vSentencesVWords[indSentence].size(); ++indWord)
-	//		{
-	//			wstring curWord = WordSansBookmarks(vSentencesVWords[indSentence][indWord]);
-	//			unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
-	//			assert(it != cache->end()); // there should always be a result
-	//			if (it->second.nTermsBeyond == 0)
-	//			{
-	//				AppendWordSpan(out, it->second.wStatus, vSentencesVWords[indSentence][indWord]);
-	//				continue;
-	//			}
-
-	//			struct mwVals
-	//			{
-	//				mwVals(wstring wStat, wstring wWC) : wStatus(wStat), wWordCount(wWC) {};
-	//				wstring wStatus;
-	//				wstring wWordCount;
-	//			};
-	//			stack<mwVals> stkMWTerms;
-	//			// gather a stack of term statuses for tracked multiword terms that start at this word
-	//			for (int indTerm = indWord + 1; indTerm < indWord + 9 && indTerm < vSentencesVWords[indSentence].size(); ++indTerm)
-	//			{
-	//				if (bWithSpaces == true)
-	//					curWord.append(L" ");
-	//				curWord += WordSansBookmarks(vSentencesVWords[indSentence][indTerm]);
-
-	//				if (usetCacheMWFragments.count(curWord) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
-	//					break;
-
-	//				unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
-	//				if (it != cache->end())
-	//					stkMWTerms.push(mwVals(it->second.wStatus, to_wstring(indTerm-indWord+1)));
-	//			}
-
-	//			// append span tags for multiword terms, from longest to short
-	//			while(stkMWTerms.size() > 0)
-	//			{
-	//				mwVals mwVCur = stkMWTerms.top();
-	//				stkMWTerms.pop();
-	//				out.append(L"<span class=\"lwtStat");
-	//				out += mwVCur.wStatus;
-	//				out.append(L"\"><sup>");
-	//				out += mwVCur.wWordCount;
-	//				out.append(L"</sup></span>");
-	//			}
-
-	//			AppendWordSpan(out, it->second.wStatus, vSentencesVWords[indSentence][indWord]);
-	//		}
-	//		out.append(L"</span>");
-	//	}
-	//}
-	///*
-	//AppendAnnotatedContent_RestoreAtBookmarks
-	//Input Condition: all words in vSentencesVWords are in the cache container
-	//*/
-	//void AppendAnnotatedContent_RestoreAtBookmarks(wstring& out, const vector<vector<wstring>>& vSentencesVWords, const vector<wstring>& chunks)
-	//{
-	//	for (int indSentence = 0; indSentence < vSentencesVWords.size(); ++indSentence)
-	//	{
-	//		out.append(L"<span class=\"lwtSent\">");
-
-	//		for (int indWord = 0; indWord < vSentencesVWords[indSentence].size(); ++indWord)
-	//		{
-	//			wstring curWord = WordSansBookmarks(vSentencesVWords[indSentence][indWord]);
-	//			unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
-	//			assert(it != cache->end()); // there should always be a result
-	//			if (it->second.nTermsBeyond == 0)
-	//			{
-	//				AppendWordSpan(out, it->second.wStatus, Word_RestoreAllBookmarks(vSentencesVWords[indSentence][indWord], chunks));
-	//				continue;
-	//			}
-
-	//			struct mwVals
-	//			{
-	//				mwVals(wstring wStat, wstring wWC) : wStatus(wStat), wWordCount(wWC) {};
-	//				wstring wStatus;
-	//				wstring wWordCount;
-	//			};
-	//			stack<mwVals> stkMWTerms;
-	//			// gather a stack of term statuses for tracked multiword terms that start at this word
-	//			for (int indTerm = indWord + 1; indTerm < indWord + 9 && indTerm < vSentencesVWords[indSentence].size(); ++indTerm)
-	//			{
-	//				if (bWithSpaces == true)
-	//					curWord.append(L" ");
-	//				curWord += WordSansBookmarks(vSentencesVWords[indSentence][indTerm]);
-
-	//				if (usetCacheMWFragments.count(curWord) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
-	//					break;
-
-	//				unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
-	//				if (it != cache->end())
-	//					stkMWTerms.push(mwVals(it->second.wStatus, to_wstring(indTerm-indWord+1)));
-	//			}
-
-	//			// append span tags for multiword terms, from longest to short
-	//			while(stkMWTerms.size() > 0)
-	//			{
-	//				mwVals mwVCur = stkMWTerms.top();
-	//				stkMWTerms.pop();
-	//				out.append(L"<span class=\"lwtStat");
-	//				out += mwVCur.wStatus;
-	//				out.append(L"\"><sup>");
-	//				out += mwVCur.wWordCount;
-	//				out.append(L"</sup></span>");
-	//			}
-
-	//			AppendWordSpan(out, it->second.wStatus, Word_RestoreAllBookmarks(vSentencesVWords[indSentence][indWord], chunks));
-	//		}
-	//		out.append(L"</span>");
-	//	}
-	//}
 	void wstring_replaceAll(wstring& out, const wstring& find, const wstring& replace)
 	{
 		int pos = 0;
@@ -2686,34 +1506,6 @@ public:
 	{
 		//wstring_replaceAll(out, L"&", L"&amp;");
 		//wstring_replaceAll(out, L"<", L"&lt;");
-	}
-	void GetTokensWithoutBookmarks(TokenStruct& tokensWithout, const TokenStruct& tokens)
-	{
-		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
-		{
-			Token_Sentence ts(tokens[i].bDigested);
-
-			for (vector<Token_Sentence>::size_type j = 0; j < tokens[i].size(); ++j)
-			{
-				ts.push_back(WordSansBookmarks(tokens[i][j]), tokens[i].isWordDigested(j));
-			}
-
-			tokensWithout.push_back(ts);
-		}
-	}
-	void GetTokensCanonical(TokenStruct& tokensCanonical, const TokenStruct& tokensWithout)
-	{
-		for (vector<Token_Sentence>::size_type i = 0; i < tokensWithout.size(); ++i)
-		{
-			Token_Sentence ts(tokensWithout[i].bDigested);
-
-			for (vector<Token_Sentence>::size_type j = 0; j < tokensWithout[i].size(); ++j)
-			{
-				ts.push_back(chaj::str::wstring_tolower(tokensWithout[i][j]), tokensWithout[i].isWordDigested(j));
-			}
-
-			tokensCanonical.push_back(ts);
-		}
 	}
 	/*	
 		!!! External dependencies: Adding New MWSpans relies on the filtering of class global TreeWalker pTW
@@ -2749,72 +1541,6 @@ public:
 		VARIANT varFilter; VariantInit(&varFilter); varFilter.vt = VT_DISPATCH; varFilter.pdispVal = pFullFilter;
 		pDT->createTreeWalker(pRoot, SHOW_ELEMENT, &varFilter, VARIANT_TRUE, &pTW);
 	}
-	void ReparsePage(IHTMLDocument2* pDoc)
-	{
-		wstring theNewsBodyContent(L"<style>span.lwtStat0 {background-color: #ADDFFF} span.lwtStat1 {background-color: #F5B8A9} span.lwtStat2 {background-color: #F5CCA9} span.lwtStat3 {background-color: #F5E1A9} span.lwtStat4 {background-color: #F5F3A9} span.lwtStat5 {background-color: #DDFFDD} span.lwtStat99 {background-color: #F8F8F8;border-bottom: solid 2px #CCFFCC} span.lwtStat98 {background-color: #F8F8F8;border-bottom: dashed 1px #000000}</style>");
-		
-		AppendAnnotatedContent_MaintainBookmarks(theNewsBodyContent, tokens, tknSansBookmarks, tknCanonical);
-
-		ReplaceNecessaryCharsWithHTMLEntities(theNewsBodyContent);
-
-		RestoreAllBookmarks(theNewsBodyContent, chunks);
-
-		// replace body text with added annotations
-		_bstr_t bNewBodyContent = theNewsBodyContent.c_str();
-		IHTMLElement* pBody = GetBodyFromDoc(pDoc);
-		HRESULT hr = pBody->put_innerHTML(bNewBodyContent.GetBSTR());
-		pBody->Release();
-	}
-	void ExpandChunkEntities(vector<wstring>& chunks)
-	{
-		for (vector<wstring>::size_type i = 0; i < chunks.size(); ++i)
-			ReplaceHTMLEntitiesWithChars(chunks[i]);
-	}
-	void ParsePage(IHTMLDocument2* pDoc)
-	{
-		if (!pDoc) // crash guard for arguments
-			return;
-
-		IHTMLElement* pBody = NULL;
-		wstring wsBodyContent = L"";
-		GetBodyContent(wsBodyContent, pBody, pDoc);	
-		if (pBody == NULL)
-			return;
-
-		// separate html into chunks, each chunk fully one of intra-tag content or extra-tag content:  |<p>|This is |<u>|such|</u>| a good book!|</p>|
-		chunks.clear();
-		PopulateChunks(chunks, wsBodyContent);
-
-		// condense non visible data down to placeholders
-		wstring wVisibleBody = GetVisibleBodyWithTagBookmarks(chunks);
-
-		// handle html entities such as &lt; and &#62, so that word parsing parses what you see and not how it's represented
-		// this is done after chunking so chunking has less issues with embedded '<' chars, and it's done
-		// after non-visible areas (like scripts) have been bookmarked to avoid altering programmatic features we don't see
-		// anyway
-		ReplaceHTMLEntitiesWithChars(wVisibleBody);
-
-		tokens.vSentences.clear();
-		tknSansBookmarks.vSentences.clear();
-		tknCanonical.vSentences.clear();
-		ParseIntoSentencesAsTokenStruct(tokens, wVisibleBody);
-		assert(TokensReassembledProperly(tokens, wVisibleBody));
-		GetTokensWithoutBookmarks(tknSansBookmarks, tokens);
-		GetTokensCanonical(tknCanonical, tknSansBookmarks);
-
-		UpdateCaches(tknCanonical);
-		ReconstructDoc(tokens, tknSansBookmarks, tknCanonical, pDoc, pBody);	
-
-#ifdef _DEBUG
-		IHTMLElement* pBody2 = NULL;
-		wstring wsBodyContent2 = L"";
-		GetBodyContent(wsBodyContent2, pBody2, pDoc);
-		if (pBody2)
-			pBody2->Release();
-#endif
-
-		pBody->Release();
-	}
 	void AppendTermDivRec(IHTMLElement* pBody, const wstring& wTermCanonical, const TermRecord& rec)
 	{
 		wstring out;
@@ -2830,16 +1556,6 @@ public:
 		out.append(rec.wRomanization);
 		out.append(L"\" />");
 		chaj::DOM::AppendHTMLBeforeEnd(out, pBody);
-	}
-	void AppendTermDivRecs(IHTMLElement* pBody)
-	{
-		unordered_set<wstring> termSet;
-		GetSetOfTerms(termSet, tknCanonical);
-
-		for (auto it = termSet.cbegin(); it != termSet.cend(); ++it)
-		{
-			AppendTermDivRec(pBody, *it, cache->find(*it)->second);
-		}
 	}
 	wstring GetDropdownHTML_TableSet()
 	{
@@ -3011,55 +1727,6 @@ public:
 		hr = chaj::DOM::AppendHTMLAfterBegin(out, pBody);
 		assert(SUCCEEDED(hr));
 	}
-	void GetSetOfTerms(unordered_set<wstring>& out, const TokenStruct& tknCanonical)
-	{
-		TRACE(L"%s", L"Calling GetSetOfTerms\n");
-		for (vector<Token_Sentence>::size_type i = 0; i < tknCanonical.size(); ++i)
-		{
-			if (tknCanonical[i].bDigested)
-			{
-				for (vector<Token_Sentence>::size_type j = 0; j < tknCanonical[i].size(); ++j)
-				{
-					if (tknCanonical[i].isWordDigested(j))
-					{
-						unordered_map<wstring,TermRecord>::const_iterator it = cache->find(tknCanonical[i][j]);
-						assert(it != cache->end());
-						out.insert(tknCanonical[i][j]);
-
-						if (it->second.nTermsBeyond != 0) //the term might participate in multiword terms
-						{
-							wstring curTerm = tknCanonical[i][j];
-							if (usetCacheMWFragments.count(curTerm) != 0) //this terms starts some MWTerm
-							{
-								int nSkipCount = 0;
-								// gather a stack of term statuses for tracked multiword terms that start at this word
-								for (vector<Token_Word>::size_type k = j + 1; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
-								{
-									if (tokens[i].isWordDigested(k) == false)
-									{
-										++nSkipCount;
-										continue;
-									}
-
-									if (bWithSpaces == true)
-										curTerm.append(L" ");
-									curTerm += tknCanonical[i][k];
-
-									if (usetCacheMWFragments.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
-										break;
-
-									unordered_map<wstring,TermRecord>::const_iterator it = cache->find(curTerm);
-									if (it != cache->end())
-										out.insert(curTerm);
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-		TRACE(L"%s", L"Leaving GetSetOfTerms\n");
-	}
 	void AppendCss(IHTMLDocument2* pDoc)
 	{
 		HRESULT hr = AppendStylesToDoc(this->wCss, pDoc);
@@ -3068,129 +1735,6 @@ public:
 	void dhr(HRESULT hr) //(D)ebug (HR)esult
 	{
 		assert(SUCCEEDED(hr));
-	}
-	void ReconstructDoc(const TokenStruct& tokens, const TokenStruct& tknWithout, const TokenStruct& tknCanonical, IHTMLDocument2* pDoc, IHTMLElement* pBody)
-	{
-		HRESULT hr;
-		VARIANT_BOOL vBool;
-		wstring out;
-		int lwtid = 1;
-
-		AppendTermDivRecs(pBody);
-		AppendHtmlBlocks(pDoc);
-		/* specifically last after all elements placed */ AppendJavascript(pDoc);
-
-		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc);
-		assert(pSetupLink);
-		dhr(pSetupLink->click());
-		pSetupLink->Release();
-
-		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
-		if (!pRange)
-			return;
-
-		wstring wstrText = HTMLTxtRange_get_text(pRange);
-		wstring wstrHTMLText = HTMLTxtRange_htmlText(pRange);
-
-		AppendCss(pDoc);
-
-		_bstr_t bSentenceMarker(L"<span class=\"lwtSent\" lwtsent=\"lwtsent\"></span>");
-		BSTR bstrSentenceMarker = SysAllocString(L"<span class=\"lwtSent\" lwtsent=\"lwtsent\"></span>");
-		dhr(chaj::DOM::TxtRange_CollapseToBegin(pRange));
-
-		for (decltype(tokens.size()) i = 0; i < tokens.size(); ++i)
-		{
-			if (tokens[i].bDigested == false)
-				continue;
-
-			dhr(pRange->pasteHTML(bstrSentenceMarker));
-			
-			for (decltype(tokens[i].size()) j = 0; j < tokens[i].size(); ++j)
-			{
-				if (tokens[i].isWordDigested(j) == false)
-					continue;
-
-				BSTR bWord = SysAllocString(tknWithout[i][j].c_str());
-				pRange->findText(bWord, 1000, 0, &vBool);
-				SysFreeString(bWord);
-				if (vBool == VARIANT_FALSE)
-				{
-					TRACE(L"Warning: Could not locate word to replace it: %s\n", tknWithout[i][j].c_str());
-					continue;
-				}
-
-				cache_cit it = cache->find(tknCanonical[i][j]); assert(it != cache->end()); // there should always be a result
-
-				if (it->second.nTermsBeyond != 0) //the term might participate in multiword terms
-				{
-					wstring curTerm = tknCanonical[i][j];
-					if (usetCacheMWFragments.count(curTerm) != 0) //this terms starts some MWTerm
-					{
-						stack<mwVals> stkMWTerms;
-						int nSkipCount = 0;
-						// gather a stack of term statuses for tracked multiword terms that start at this word
-						for (decltype(tokens[i].size()) k = j + 1; k < j + 9 + nSkipCount && k < tokens[i].size(); ++k)
-						{
-							if (tokens[i].isWordDigested(k) == false)
-							{
-								++nSkipCount;
-								continue;
-							}
-
-							if (bWithSpaces == true)
-								curTerm.append(L" ");
-							curTerm += tknCanonical[i][k];
-
-							if (usetCacheMWFragments.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
-								break;
-
-							cache_cit it = cache->cfind(curTerm);
-							if (it != cache->cend())
-								stkMWTerms.push(mwVals(&(it->second), to_wstring(k-j+1-nSkipCount), curTerm));
-						}
-
-						// append span tags for multiword terms, from longest to short
-						while(stkMWTerms.size() > 0)
-						{
-							mwVals mwVCur = stkMWTerms.top();
-							stkMWTerms.pop();
-							AppendMWSpan(out, mwVCur.wMWTerm, mwVCur.pRec, mwVCur.wWordCount);
-						}
-					}
-				}
-
-				if (tokens[i][j].find(tknWithout[i][j]) != wstring::npos)
-				{
-					AppendSoloWordSpan(out, tknWithout[i][j], tknCanonical[i][j], &(it->second));
-					BSTR bNew = SysAllocString(out.c_str());
-					hr = pRange->pasteHTML(bNew);
-					assert(SUCCEEDED(hr));
-					SysFreeString(bNew);
-				}
-				else
-				{
-					dhr(chaj::DOM::TxtRange_CollapseToEnd(pRange));
-				}
-				out.clear();
-			}
-		}
-
-		dhr(pRange->pasteHTML(bstrSentenceMarker));
-
-		SysFreeString(bstrSentenceMarker);
-	}
-	bool TokensReassembledProperly(const TokenStruct& ts, const wstring& orig)
-	{
-		wstring result;
-
-		for(vector<Token_Sentence>::size_type i = 0; i < ts.size(); ++i)
-		{
-			for(vector<Token_Word>::size_type j = 0; j < ts[i].size(); ++j)
-			{
-				result.append(ts[i][j]);
-			}
-		}
-		return (wcscmp(orig.c_str(), result.c_str()) == 0);
 	}
 	HRESULT __stdcall SetSite(IUnknown* pUnkSite)
 	{
@@ -3482,119 +2026,7 @@ public:
 		if (SUCCEEDED(hr))
 			hr = chaj::DOM::SetElementOuterHTML(pNew, wOuterHTML);
 	}
-	void RoughInsert(list<wstring>& cWords, int nAtATime)
-	{
-		CacheDBHitsWithListRemove(cWords, nAtATime);
-		if (bShuttingDown)
-			return;
-
-		// cache misses with status 0
-		for(wstring wTerm : cWords)
-		{
-			if (bShuttingDown)
-				return;
-			cache->insert(unordered_map<wstring,TermRecord>::value_type(wTerm, TermRecord(L"0")));
-		}
-	}
-	void RoughInsertList(forward_list<wstring>& cWords, IHTMLElement* pBody, unordered_set<wstring>& pageDivRecs)
-	{	
-		wstring	wInList;
-
-		// create string of uncached terms
-		for (auto iter = cWords.begin(); iter != cWords.end(); ++iter)
-		{
-			cache_it it = cache->find(*iter);
-			if (TermNotCached(it))
-			{
-				if (!wInList.empty())
-					wInList.append(L",");
-
-				wInList.append(L"'");
-				wInList.append(EscapeSQLQueryValue(*iter));
-				wInList.append(L"'");
-			}
-		}
-
-		// cache uncached tracked terms
-		if (!wInList.empty())
-		{
-			wstring wQuery;
-			wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
-			wQuery.append(wTableSetPrefix);
-			wQuery.append(L"words where WoLgID = ");
-			wQuery.append(wLgID);
-			wQuery.append(L" AND WoTextLC in (");
-			wQuery.append(wInList);
-			wQuery.append(L")");
-
-			EnterCriticalSection(&CS_UseDBConn);
-			DoExecuteDirect(_T("1612isjdlfij"), wQuery);
-			while (tStmt.fetch_next())
-			{
-				wstring wLC = tStmt.field(1).as_string();
-				TermRecord rec(tStmt.field(2).as_string());
-				rec.wRomanization = tStmt.field(3).as_string();
-				rec.wTranslation = tStmt.field(4).as_string();
-				cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
-			}
-			tStmt.free_results();
-			LeaveCriticalSection(&CS_UseDBConn);
-		}
-
-		// at this point all terms in list that are tracked are cached
-
-		if (bShuttingDown)
-			return;
-
-		// add all necessary DivRecs to the page
-		for(wstring wTerm : cWords)
-		{
-			cache_cit it = cache->find(wTerm);
-			if (TermNotCached(it))
-			{
-				cache->insert(unordered_map<wstring,TermRecord>::value_type(wTerm, TermRecord(L"0")));
-				AppendTermDivRec(pBody, wTerm, TermRecord(L"0"));
-				pageDivRecs.insert(wTerm);
-			}
-			else if (pageDivRecs.find(wTerm) == pageDivRecs.end())
-			{
-				AppendTermDivRec(pBody, wTerm, it->second);
-				pageDivRecs.insert(wTerm);
-			}
-			
-			if (bShuttingDown)
-				return;
-		}
-	}
-	void Thread_MWHighlight(LPSTREAM pDocStream, forward_list<wstring>& cWords)
-	{
-		if (!pDocStream)
-			return;
-
-		IHTMLDocument2* pDoc = nullptr;
-		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDocStream));
-		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
-		if (FAILED(hr) || !pDoc)
-			return;
-
-		forward_list<wstring> possTerms;
-		
-		for (auto iter = cWords.begin(); iter != cWords.end(); ++iter)
-		{
-			auto subIter(iter);
-			++subIter;
-			unsigned int additionalTerms = 1;
-			wstring wCumTerm = *iter;
-			while (subIter != cWords.end() && additionalTerms < LWT_MAX_MWTERM_LENGTH)
-			{
-				wCumTerm += *subIter;
-				possTerms.push_front(wCumTerm);
-				++additionalTerms;
-				++subIter;
-			}
-		}
-	}
-		void Thread_CachePageMWTerms(LPSTREAM pDocStream, shared_ptr<vector<wstring>> sp_vWords)
+	void Thread_CachePageMWTerms(LPSTREAM pDocStream, shared_ptr<vector<wstring>> sp_vWords)
 	{
 		if (!pDocStream || !sp_vWords)
 			return;
@@ -4212,16 +2644,6 @@ public:
 			return true;
 		return false;
 	}
-	void EnsureIterator(IHTMLDocument2* pDoc)
-	{
-		if (pNI)
-			pNI->Release();
-
-		IHTMLElement* pBody = GetBodyFromDoc(pDoc);
-		DOMIteratorFilter filter(&FilterNodes_LWTTerm);
-		pNI = GetNodeIteratorWithFilter(pDoc, pBody, dynamic_cast<IDispatch*>(&filter));
-		pBody->Release();
-	}
 	void GetDropdownPrefixList(vector<wstring>& vPrefixes)
 	{
 		vPrefixes.clear();
@@ -4278,21 +2700,6 @@ public:
 			}
 		}
 	}
-	bool ElementPartOfLink(IHTMLElement* pElement)
-	{
-		IHTMLAnchorElement* pAnchor = nullptr;
-
-		do
-		{
-			pAnchor = GetAlternateInterface<IHTMLElement,IHTMLAnchorElement>(pElement);
-			if (pAnchor) return true;
-
-			pElement->get_parentElement(&pElement);
-
-		} while (pElement);
-
-		return false;
-	}
 	void HandleRightClick()
 	{
 		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser);
@@ -4320,7 +2727,7 @@ public:
 			SetEventReturnFalse(pEvent);
 			INT_PTR res = DialogBox(hInstance, MAKEINTRESOURCE(IDD_CTRL_DIALOG), hBrowser, reinterpret_cast<DLGPROC>(DlgProc_CtrlDlg));
 			if (res == CTRL_FORCE_PARSE)
-				ForcePageParse(pDoc);
+				__noop;//ForcePageParse(pDoc);
 			else if (res == CTRL_CHANGE_LANG)
 				HandleChangeLang();
 		}
@@ -4332,10 +2739,6 @@ public:
 		// set lwt db choice
 		// call on lang change -- which should flush cache
 		// reparse page if on lang change doesn't
-	}
-	void ForcePageParse(IHTMLDocument2* pDoc)
-	{
-		ParsePage(pDoc);
 	}
 	HRESULT SetEventReturnFalse(IHTMLEventObj* pEvent)
 	{
@@ -4351,98 +2754,6 @@ public:
 		return cache->find(wTerm) != cache->end();
 		//unordered_map<wstring,TermRecord>::iterator it = cache->find(wTerm);
 		//return it != cache->end();
-	}
-	void oldPopupDialog()
-	{
-		//else
-		//{
-
-		//	wstring wTerm = GetAttributeValue(pElement, L"lwtTerm");
-		//	if (wTerm.size() <= 0)
-		//		return;
-
-		//	//_bstr_t bstrStat;
-		//	BSTR bstrStat;
-		//	HRESULT hr = pElement->get_className(&bstrStat);//bstrStat.GetAddress());
-		//	if (bstrStat == NULL)
-		//		return;
-
-		//	wstring wOldStatus(bstrStat);
-		//	SysFreeString(bstrStat);
-		//	wstring wOldStatNum(wstring(wOldStatus, wStatIntro.size()));
-		//	bool isAddOp = false;
-		//	if (wOldStatNum == L"0")
-		//		isAddOp = true;
-
-
-		//	MainDlgStruct mds(ElementPartOfLink(pElement));
-		//	DlgResult* pDR = NULL;
-		//	int res;
-		//	if (IsMultiwordTerm(wTerm))
-		//	{
-		//		if (mds.bOnLink)
-		//			pDR = (DlgResult*)DialogBox(hInstance, MAKEINTRESOURCE(IDD_DIALOG2), hBrowser, reinterpret_cast<DLGPROC>(DlgProc_ChangeStatus));
-		//		else
-		//			pDR = (DlgResult*)DialogBox(hInstance, MAKEINTRESOURCE(IDD_DIALOG1), hBrowser, reinterpret_cast<DLGPROC>(DlgProc_ChangeStatus));
-		//		if ((int)pDR == -1)
-		//		{
-		//			mb("Unable to render dialog box, or other related error.", "2232idhf");
-		//			return;
-		//		}
-
-		//		res = pDR->nStatus;
-		//		if (res != 100)
-		//		{
-		//			assert(res == 0 || res == 1 || res == 2 || res == 3 || res == 4 || res == 5 || res == 98 || res == 99);
-		//			ChangeTermStatus(wTerm, to_wstring(res), pDoc);
-		//			if (mds.bOnLink)
-		//				SetEventReturnFalse(pEvent);
-		//		}
-		//	}
-		//	else
-		//	{
-		//		GetDropdownTermList(mds.Terms, pElement);
-		//		if (mds.bOnLink)
-		//			pDR = (DlgResult*)DialogBoxParam(hInstance, MAKEINTRESOURCE(IDD_DIALOG12), hBrowser, reinterpret_cast<DLGPROC>(DlgProc_ChangeStatus), (LPARAM)&mds);
-		//		else
-		//			pDR = (DlgResult*)DialogBoxParam(hInstance, MAKEINTRESOURCE(IDD_DIALOG11), hBrowser, reinterpret_cast<DLGPROC>(DlgProc_ChangeStatus), (LPARAM)&mds);
-
-		//		if ((int)pDR == -1)
-		//		{
-		//			mb("Unable to render dialog box, or other related error.", "2232idhf");
-		//			return;
-		//		}
-
-		//		res = pDR->nStatus;
-		//		if (res != 100)
-		//		{
-		//			assert(res == 0 || res == 1 || res == 2 || res == 3 || res == 4 || res == 5 || res == 98 || res == 99);
-		//			if (IsMultiwordTerm(pDR->wstrTerm))
-		//			{
-		//				if (!TermInCache(pDR->wstrTerm))
-		//					AddNewTerm(pDR->wstrTerm, to_wstring(res), pDoc);
-		//				else
-		//					mb("Term is already defined. Isn't it?");
-		//			}
-		//			else
-		//			{
-		//				if (isAddOp == true)
-		//					AddNewTerm(wTerm, to_wstring(res), pDoc);
-		//				else
-		//					ChangeTermStatus(wTerm, to_wstring(res), pDoc);
-		//			}
-
-		//			VARIANT varRetVal; VariantInit(&varRetVal); varRetVal.vt = VT_BOOL; varRetVal.boolVal = VARIANT_FALSE;
-		//			pEvent->put_returnValue(varRetVal);
-		//			VariantClear(&varRetVal);
-		//		}
-		//	}
-
-		//	pElement->Release();
-		//	pEvent->Release();
-		//	pDoc->Release();
-		//	delete pDR;
-		//}
 	}
 	wstring GetInfoTrans(IHTMLDocument2* pDoc)
 	{
@@ -4869,8 +3180,6 @@ private:
 	wstring wstrGoogleTrans;
 	wstring wJavascript;
 	wstring wCss;
-	vector<wstring> chunks;
-	TokenStruct tokens, tknSansBookmarks, tknCanonical;
 	bool bWithSpaces;
 	_bstr_t bstrUrl;
 	LWTCache* cache;
@@ -4878,8 +3187,6 @@ private:
 	vector<std::thread*> cpThreads;
 	// wregex
 	wregex_iterator rend;
-	wregex wWordSansBookmarksWrgx;
-	wregex TagNotTagWrgx;
 	bool bShuttingDown;
 	CRITICAL_SECTION CS_UseDBConn;
 };
@@ -4942,8 +3249,6 @@ inline LwtBho::LwtBho()
 
 	if (!InitializeCriticalSectionAndSpinCount(&CS_UseDBConn, 0x00000400))
 		TRACE(L"Cound not initialize critical section CS_UseDBConn in LwtBho. 5110suhdg\n"); // hack: this needs to be addressed, but I didn't want to throw an exception from the constructor; research this
-
-	InitializeWregexes();
 
 	pFilter = new chaj::DOM::DOMIteratorFilter(&FilterNodes_LWTTerm);
 	pFullFilter = new chaj::DOM::DOMIteratorFilter(&FilterNodes_LWTTermAndSent);
