@@ -21,10 +21,14 @@
 #include "manip.h"
 #include <fstream>
 #include <sstream>
+#include <atomic>
+#include <condition_variable>
 #include <vector>
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
+#include <forward_list>
 #include <stack>
 #include <algorithm>
 #include <regex>
@@ -33,6 +37,7 @@
 #include "tiodbc.hpp"
 #include "chajUtil.h"
 #include "chajDOM.h"
+#include "Chunc_CachePageWords.h"
 using namespace mysqlpp;
 using namespace std;
 using namespace chaj;
@@ -45,10 +50,12 @@ typedef vector<wstring>::const_iterator wstr_c_it;
 const INT_PTR CTRL_FORCE_PARSE = static_cast<INT_PTR>(101);
 const INT_PTR CTRL_CHANGE_LANG = static_cast<INT_PTR>(102);
 const int MWSpanAltroSize = 7;
+const int MAX_FIELD_WIDTH = 255;
 const wstring wstrNewline(L"&#13;&#10;");
 
 #define nHiddenChunkOpenBookmarkLen 3
 #define LWT_MAXWORDLEN 255
+#define LWT_MAX_MWTERM_LENGTH 9
 extern wstring wHiddenChunkBookmark;
 extern wstring wPTagBookmark;
 extern wstring wStatIntro;
@@ -99,6 +106,7 @@ public:
 class LwtBho: public IObjectWithSite, public IDispatch
 {
 	friend class LWTCache;
+	friend class Chunc_CachePageWords;
 
 private:
 
@@ -159,7 +167,7 @@ public:
 		if (!success)
 		{
 			wstring werr = tStmt.last_error();
-			TRACE(L"execute_direct error: %s %s", errCode.c_str(), werr.c_str());
+			TRACE(L"execute_direct error: %s %s\n", errCode.c_str(), werr.c_str());
 		}
 		return success;
 	}
@@ -185,7 +193,7 @@ public:
 
 			if (IsMultiwordTerm(wTerm))
 			{
-				UpdatePageMWList(wTerm);
+				UpdateCacheMWFragments(wTerm);
 				AddNewMWSpans(wTerm, wNewStatus, pDoc);
 			}
 			else
@@ -215,9 +223,9 @@ public:
 		unordered_map<wstring,TermRecord>::const_iterator it = cache->cfind(wTerm);
 		assert(it != cache->cend());
 
-		IHTMLElement* pBody = chaj::DOM::GetBodyAsElementFromDoc(pDoc);
+		IHTMLElement* pBody = chaj::DOM::GetBodyFromDoc(pDoc);
 		assert(pBody);
-		AppendTermRecordDiv(pBody, wTerm, it->second);
+		AppendTermDivRec(pBody, wTerm, it->second);
 		pBody->Release();
 		AppendMWSpan(out, wTerm, &(it->second), to_wstring(uCount));
 
@@ -274,6 +282,7 @@ public:
 				vParts.push_back(pwc);
 				pwc = wcstok(NULL, L" ");
 			}
+			delete [] wcsTerm;
 		}
 		else
 		{
@@ -291,9 +300,9 @@ public:
 		unordered_map<wstring,TermRecord>::const_iterator it = cache->cfind(wTerm);
 		assert(it != cache->cend());
 
-		IHTMLElement* pBody = chaj::DOM::GetBodyAsElementFromDoc(pDoc);
+		IHTMLElement* pBody = chaj::DOM::GetBodyFromDoc(pDoc);
 		assert(pBody);
-		AppendTermRecordDiv(pBody, wTerm, it->second);
+		AppendTermDivRec(pBody, wTerm, it->second);
 		pBody->Release();
 		AppendMWSpan(out, wTerm, &(it->second), to_wstring(uCount));
 
@@ -507,7 +516,7 @@ public:
 					assert(SUCCEEDED(hr));
 #ifdef _DEBUG
 					if (FAILED(hr))
-						TRACE(L"%s", L"Unable to properly delete multiword span.");
+						TRACE(L"%s", L"Unable to properly delete multiword span.\n");
 #endif
 				}
 			}
@@ -602,7 +611,7 @@ public:
 	}
 	void InvokeScripts(IHTMLDocument2* pDoc)
 	{
-		IHTMLElement* pBody = GetBodyAsElementFromDoc(pDoc);
+		IHTMLElement* pBody = GetBodyFromDoc(pDoc);
 		IDOMTreeWalker* pTree = GetTreeWalkerWithFilter(pDoc, pBody, &FilterNodes_Scripts, SHOW_ELEMENT);
 		pBody->Release();
 
@@ -1236,9 +1245,7 @@ public:
 	}
 	void PopulateChunks(vector<wstring>& chunks, wstring& wFullBody)
 	{
-		TRACE(L"%s", L"Calling PopulateChunks\n");
 		SplitChunksByComment(chunks, wFullBody);
-		TRACE(L"%s", L"Leaving PopulateChunks\n");
 	}
 
 	/* WARNING */// the function IsChunkVisible is highly dependent a relationship among its lines of code
@@ -1617,7 +1624,7 @@ public:
 		in = out;
 	}
 
-	void UpdatePageMWList(const wstring& wMWTerm)
+	void UpdateCacheMWFragments(const wstring& wMWTerm)
 	{
 		if (bWithSpaces)
 		{
@@ -1627,13 +1634,13 @@ public:
 			{
 				++pos;
 				pos = wMWTerm.find(L" ", pos);
-				usetPageMWList.insert(wstring(wMWTerm, 0, pos));
+				usetCacheMWFragments.insert(wstring(wMWTerm, 0, pos));
 			} while (pos != wstring::npos);
 		}
 		else
 		{
 			for (wstring::size_type i = 1; i <= wMWTerm.size(); ++i)
-				usetPageMWList.insert(wstring(wMWTerm, 0, i));
+				usetCacheMWFragments.insert(wstring(wMWTerm, 0, i));
 		}
 	}
 
@@ -1653,7 +1660,7 @@ public:
 			//	mb("the item");
 			//	mb(*itWord);
 			//	mb(to_wstring((*itWord).size()));
-			//	UpdatePageMWList(*itWord);
+			//	UpdateCacheMWFragments(*itWord);
 			//	//mb("found");
 			//}
 		}
@@ -1819,11 +1826,10 @@ public:
 	}
 	void UpdateCaches(const TokenStruct& tknCanonical)
 	{
-		TRACE(L"%s", L"Calling UpdateCaches\n");
-		EnsureRecordEntryForEachWord(tknCanonical);
+		list<wstring> lstUncachedWords = GetUncachedTokens(tknCanonical);
+		EnsureRecordEntryForEachWord(lstUncachedWords);
 		//UpdateTerminationCache(vWords);
 		EnsureRecordEntryForEachMWTerm(tknCanonical);
-		TRACE(L"%s", L"Leaving UpdateCaches\n");
 	}
 	//void UpdateCaches(const vector<vector<wstring>>& vSentencesVWords)
 	//{
@@ -1883,19 +1889,18 @@ public:
 	}
 	wstring EscapeSQLQueryValue(const wstring& wQuery)
 	{
-		TRACE(L"Entering EscapeSQLQueryValue: const overload\n");
-		
 		wstring out(wQuery);
 		EscapeSQLQueryValue(out);
-
-		TRACE(L"Leaving EscapeSQLQueryValue: const overload\n");
 		return out;
 	}
 	wstring& EscapeSQLQueryValue(wstring& wQuery)
 	{
-		TRACE(L"Entering EscapeSQLQueryValue\n");
+		int pos = wQuery.find_first_of(L"'\\");
+		if (pos == wstring::npos)
+			return wQuery;
 
-		int pos = wQuery.find('\''), pos2;
+		int pos2;
+		pos = wQuery.find('\'');
 		while (pos != wstring::npos)
 		{
 			if ((pos > 0 && wQuery[pos-1] != L'\\') || pos == 0)
@@ -1909,12 +1914,26 @@ public:
 			pos = wQuery.find('\'', pos2);
 		}
 
-		TRACE(L"Leaving EscapeSQLQueryValue\n");
+		// final backslashes must come in even pairs
+		pos = wQuery.rfind('\\');
+		if (pos == wQuery.length() - 1) // ends with a backslash
+		{
+			if (pos == 1)
+				wQuery = L"\\\\";
+			else
+			{
+				pos2 = wQuery.find_last_not_of('\\');
+				if ((pos - pos2) % 2 != 0)
+				{
+					wQuery.replace(pos, 1, L"\\\\");
+				}
+			}
+		}
+
 		return wQuery;
 	}
-	void InsertCacheItems(int nAtATime, list<wstring>& lstItems, bool bIsMultiWord = false)
+	void CacheDBHitsWithListRemove(list<wstring>& lstItems, int nAtATime = 1000, bool bIsMultiWord = false)
 	{
-		TRACE(L"%s", L"Calling InsertCacheItems\n");
 		int MAX_FIELD_WIDTH = 255;
 		bool bWithList = false;
 		vector<wstring> vQueries;
@@ -1924,7 +1943,6 @@ public:
 		list<wstring>::iterator iter = lstCopy.begin();
 		for (list<wstring>::size_type i = 0; i < lstCopy.size(); i += nAtATime)
 		{
-			TRACE(L"Creating query #%i\n", i+1);
 			wstring wInList;
 
 			for (list<wstring>::size_type j = i; j < lstCopy.size() && j < i + nAtATime; ++j)
@@ -1951,8 +1969,8 @@ public:
 		TRACE(L"%i queries created\n", vQueries.size());
 		for (vector<wstring>::size_type i = 0; i < vQueries.size(); ++i)
 		{
+			EnterCriticalSection(&CS_UseDBConn);
 			DoExecuteDirect(_T("1612isjdlfij"), vQueries[i]);
-			TRACE(L"Executed query #%i\n", i + 1);
 			while (tStmt.fetch_next())
 			{
 				wstring wLC = tStmt.field(1).as_string();
@@ -1961,13 +1979,13 @@ public:
 				rec.wTranslation = tStmt.field(4).as_string();
 				cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
 				if (bIsMultiWord == true)
-					UpdatePageMWList(wLC);
+					UpdateCacheMWFragments(wLC);
 				else
 					lstItems.remove(wLC);
 			}
 			tStmt.free_results();
+			LeaveCriticalSection(&CS_UseDBConn);
 		}
-		TRACE(L"%s", L"Leaving InsertCacheItems\n");
 	}
 	list<wstring> GetUncachedTokens(const TokenStruct& tokens)
 	{
@@ -1991,15 +2009,13 @@ public:
 		out.unique();
 		return out;
 	}
-	void EnsureRecordEntryForEachWord(const TokenStruct& tknCanonical)
+	void EnsureRecordEntryForEachWord(list<wstring>& cWords)
 	{
-		list<wstring> lstUncachedWords = GetUncachedTokens(tknCanonical);
-
 		const int MAX_MYSQL_INLIST_LEN = 2000;
+		CacheDBHitsWithListRemove(cWords, MAX_MYSQL_INLIST_LEN);
 
-		InsertCacheItems(MAX_MYSQL_INLIST_LEN, lstUncachedWords);
-
-		for(wstring wTerm : lstUncachedWords)
+		// cache misses with status 0
+		for(wstring wTerm : cWords)
 			cache->insert(unordered_map<wstring,TermRecord>::value_type(wTerm, TermRecord(L"0")));
 	}
 	void test5(vector<wstring>& v)
@@ -2009,29 +2025,15 @@ public:
 	}
 	void EnsureRecordEntryForEachMWTerm(const TokenStruct& tknCanonical)
 	{
-		TRACE(L"%s", L"Calling EnsureRecordEntryForEachMWTerm\n");
 		list<wstring> lstTerms;
 		ParseSentencesToMWTerms(lstTerms, tknCanonical);
-
 
 		//vector<wstring> vUncachedMWTerms;
 		//GetUncachedSubset(vUncachedMWTerms, vTerms);
 
-		int nMaxMWTermsPerInList = 500;
-		InsertCacheItems(nMaxMWTermsPerInList, lstTerms, true);
-		TRACE(L"%s", L"Leaving EnsureRecordEntryForEachMWTerm\n");
+		const int nMaxMWTermsPerInList = 500;
+		CacheDBHitsWithListRemove(lstTerms, nMaxMWTermsPerInList, true);
 	}
-	//void EnsureRecordEntryForEachMWTerm(const vector<vector<wstring>>& vSentencesVWords)
-	//{
-	//	vector<wstring> vTerms;
-	//	ParseSentencesToMWTermsOnlyIf_SansBookmarks(vTerms, vSentencesVWords);
-
-	//	vector<wstring> vUncachedMWTerms;
-	//	GetUncachedSubset(vUncachedMWTerms, vTerms);
-
-	//	int nMaxMWTermsPerInList = 500;
-	//	InsertCacheItems(nMaxMWTermsPerInList, vUncachedMWTerms);
-	//}
 
 	/*
 		GetBodyContent
@@ -2041,7 +2043,6 @@ public:
 	*/
 	void GetBodyContent(wstring& wBody, IHTMLElement*& pBody, IHTMLDocument2* pDoc)
 	{
-		TRACE(L"%s", L"Calling GetBodyContent\n");
 		wBody = L"";
 		if (pBody != NULL || pDoc == NULL)
 			return;
@@ -2096,54 +2097,6 @@ public:
 
 		if (bstrBodyContent.length())
 			wBody = to_wstring(bstrBodyContent.GetBSTR());
-
-		TRACE(L"%s", L"Leaving GetBodyContent\n");
-	}
-	void PSTS_WordLevel_spaceless(TokenStruct& tokens, const wstring& in)
-	{
-		wstring::size_type pos1 = 0, pos2 = 0;
-		Token_Sentence ts(true);
-
-		// pattern: (?:(?:~-~#~-~)*[aWordChar])(?:~-~#~-~|[aWordChar])*
-		// regex pattern regPtn ensures that it returns a true word (contains at least one lwt defined word character)
-		// regPtns also ensures that if ~ is considered a valid wordChar, we won't end up at - and choke on a bookmark tag,
-		// i.e. it eats whole bookmarks first at each comparison point, and it why the second appearance of [aWordChar]
-		// is not [aWordChar]+
-		wstring regPtn = L"[";
-		regPtn += WordChars;
-		regPtn.append(L"]");
-
-		wregex wrgx(regPtn, regex_constants::ECMAScript);
-		wregex_iterator regit(in.begin(), in.end(), wrgx);
-		wregex_iterator rend;
-		int i = tokens.size();
-
-		while (regit != rend)
-		{
-			wstring wWord = regit->str();
-			assert(pos1 != wstring::npos && pos1 >= 0 && pos1 < in.size());
-			pos2 = in.find(wWord, pos1);
-			assert(pos2 != wstring::npos); // regex pattern just found should be found again
-			if (pos2 != pos1) // non-word data found in sentence
-				ts.push_back(wstring(in, pos1, pos2-pos1), false);
-			pos1 = pos2 + wWord.size();
-			
-			ts.push_back(wWord);
-
-			++regit;
-		}
-		if (pos1 == 0) // only non-digest data in this sentence
-		{
-			ts.push_back(in, false);
-			tokens.push_back(ts);
-		}
-		else
-		{
-			if (pos1 < in.size()) // we have data left in the sentence we received that contains no words
-				ts.push_back(wstring(in, pos1, in.size()-pos1), false);
-
-			tokens.push_back(ts);
-		}
 
 	}
 	void PSTS_BookmarkLevel(TokenStruct& tokens, const wstring& in)
@@ -2562,510 +2515,46 @@ public:
 	{
 		out.append(L"</span>");
 	}
-	void AppendInfoBoxJavascript(IHTMLDocument2* pDoc, IHTMLElement* pBody)
+	void AppendJavascript(IHTMLDocument2* pDoc)
 	{
-		IHTMLElement* pHead = chaj::DOM::GetHeadAsElementFromDoc(pDoc);
-		IHTMLElement* pScript = nullptr;
-		BSTR bstrScript = SysAllocString(L"script");
-		pDoc->createElement(bstrScript, &pScript);
-		SysFreeString(bstrScript);
+		if (!pDoc)
+		{
+			TRACE(L"Argment error in AppendJavascript. 2513ishdllijj\n");
+			return;
+		}
 
-		wstring out;
-
-		//out.append(
-			//L"window.lwtdict1 = getElementById('lwtdict1').getAttribute('src');"
-			//L"window.lwtdict2 = getElementById('lwtdict2').getAttribute('src');"
-			//L"window.lwtgoogletrans = getElementById('lwtgoogletrans').getAttribute('src');"
-			//);
-		out.append(L"function lwtcheckinner() {alert('could call inserted javascript!');}");
-		out.append(wJavascript);
-//L"function lwtSetup()"
-//L"{"
-//L"	var panelHeight = document.getElementById('lwtterminfo').offsetHeight;"
-//L"  document.getElementById('lwtIntroDiv').style.height = panelHeight + 'px';"
-//L"  document.getElementById('lwtSettings').style.height = panelHeight + 'px';"
-//L"	window.onscroll = moveInfoOnScroll;"
-//L"	document.attachEvent('onkeydown', lwtkeypress);"
-//L"}"
-//L""
-//L"function totalLeftOffset(element)"
-//L"{"
-//L"	var amount = 0;"
-//L"	while (element != null)"
-//L"	{"
-//L"		amount += element.offsetLeft;"
-//L"		element = element.offsetParent;"
-//L"	}"
-//L"	return amount;"
-//L"}"
-//L""
-//L"function totalTopOffset(element)"
-//L"{"
-//L"	var amount = 0;"
-//L"	while (element != null)"
-//L"	{"
-//L"		amount += element.offsetTop;"
-//L"		element = element.offsetParent;"
-//L"	}"
-//L"	return amount;"
-//L"}"
-//L""
-//L"function fixPageXY(e)"
-//L"{"
-//L"	if (e.pageX == null && e.clientX != null )"
-//L"	{"
-//L"		var html = document.documentElement;"
-//L"		var body = document.body;"
-//L"		e.pageX = e.clientX + (html.scrollLeft || body && body.scrollLeft || 0);"
-//L"		e.pageX -= html.clientLeft || 0;"
-//L"		e.pageY = e.clientY + (html.scrollTop || body && body.scrollTop || 0);"
-//L"		e.pageY -= html.clientTop || 0;"
-//L"	}"
-//L"}"
-//L""
-//L"function setSelection(elem, lastterm, curTerm)"
-//L"{"
-//L"	elem.id = 'lwtcursel';"
-//L"	lastterm.setAttribute('lwtcursel', curTerm);"
-//L"	elem.className = elem.className + ' lwtSel';"
-//L"}"
-//L""
-//L"function getSelection()"
-//L"{"
-//L"	var elem = document.getElementById('lwtcursel');"
-//L"	if (elem === null)"
-//L"		return '';"
-//L"	return elem.getAttribute('lwtcursel');"
-//L"}"
-//L""
-//L"function removeSelection()"
-//L"{"
-//L"	var elem = document.getElementById('lwtcursel');"
-//L"	if (elem == null)"
-//L"	{"
-//L"		return;"
-//L"	}"
-//L"	elem.id = '';"
-//L"	document.getElementById('lwtlasthovered').setAttribute('lwtcursel','');"
-//L"	var curClass = elem.className;"
-//L"	var lastSpace = curClass.lastIndexOf(' ');"
-//L"	if (lastSpace >= 0)"
-//L"	{"
-//L"		var putClass = curClass.substr(0, lastSpace + 1);"
-//L"		elem.className = putClass;"
-//L"	}"
-//L"}"
-//L""
-//L"function XOnElement(x, elem)"
-//L"{"
-//L"	if (x < totalLeftOffset(elem) || x >= totalLeftOffset(elem) + elem.offsetWidth)"
-//L"	{"
-//L"		return false;"
-//L"	}"
-//L"	return true;"
-//L"}"
-//L""
-//L"function YOnElement(y, elem)"
-//L"{"
-//L"	if (y < totalTopOffset(elem) || y >= totalTopOffset(elem) + elem.offsetHeight)"
-//L"	{"
-//L"		return false;"
-//L"	}"
-//L"	return true;"
-//L"}"
-//L""
-//L"function XYOnElement(x, y, elem)"
-//L"{"
-//L"	return (XOnElement(x, elem) && YOnElement(y, elem));"
-//L"}"
-//L""
-//L"function lwtcontextexit()"
-//L"{"
-//L"	removeSelection();"
-//L"	CloseOpenDialogs();"
-//L"}"
-//L""
-//L"function lwtdivmout(e)"
-//L"{"
-//L"	fixPageXY(e);"
-//L"	var statbox = window.curStatbox;"
-//L"	var bVal = XYOnElement(e.pageX, e.pageY, statbox);"
-//L"	if (bVal == false)"
-//L"	{"
-//L"		lwtmout(e);"
-//L"	}"
-//L"}"
-//L""
-//L"function lwtmout(e)"
-//L"{"
-//L"	fixPageXY(e);"
-//L"	var statbox = window.curStatbox;"
-//L"	if (!XYOnElement(e.pageX, e.pageY, statbox))"
-//L"	{"
-//L"		lwtcontextexit();"
-//L"	}"
-//L"}"
-//L""
-//L"function CloseOpenDialogs()"
-//L"{"
-//L"	window.curStatbox.style.display = 'none';"
-//L"}"
-//L""
-//L"function lwtkeypress()"
-//L"{"
-//L"	if (document.getElementById('lwtlasthovered').getAttribute('lwtcursel') == '' || window.mwTermBegin != null)"
-//L"		return;"
-//L"	var e = window.event;"
-//L"	if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey)"
-//L"		return;"
-//L"	switch(e.keyCode)"
-//L"	{"
-//L"		case 49:"
-//L"			document.getElementById('lwtsetstat1').click();"
-//L"			break;"
-//L"		case 50:"
-//L"			document.getElementById('lwtsetstat2').click();"
-//L"			break;"
-//L"		case 51:"
-//L"			document.getElementById('lwtsetstat3').click();"
-//L"			break;"
-//L"		case 52:"
-//L"			document.getElementById('lwtsetstat4').click();"
-//L"			break;"
-//L"		case 53:"
-//L"			document.getElementById('lwtsetstat5').click();"
-//L"			break;"
-//L"		case 87:"
-//L"			document.getElementById('lwtsetstat99').click();"
-//L"			break;"
-//L"		case 73:"
-//L"			document.getElementById('lwtsetstat98').click();"
-//L"			break;"
-//L"		case 85:"
-//L"			document.getElementById('lwtsetstat0').click();"
-//L"			break;"
-//L"		case 27:"
-//L"			CloseOpenDialogs();"
-//L"			break;"
-//L"	}"
-//L"}"
-//L""
-//L"function ExtrapLink(elem, linkForm, curTerm)"
-//L"{"
-//L"	if (elem == null) {return;}"
-//L"	var extrap = 'javascript:void(0);';"
-//L"	if (linkForm.indexOf('*') == 0)"
-//L"	{"
-//L"		extrap = linkForm.substr(1, linkForm.length);"
-//L"		extrap = extrap.replace('###', curTerm);"
-//L"		elem.setAttribute('target', '_blank');"
-//L"	}"
-//L"	else if (linkForm.indexOf('###') >= 0)"
-//L"	{"
-//L"		extrap = linkForm.replace('###', curTerm);"
-//L"		elem.setAttribute('target', 'lwtiframe');"
-//L"	}"
-//L"	elem.setAttribute('href', extrap);"
-//L"}"
-//L""
-//L"function moveInfoOnScroll(){document.getElementById('lwtterminfo').style.top = window.pageYOffset + 'px';}"
-//L""
-//L"function lwtmover(whichid, e, origin)"
-//L"{"
-//L"	removeSelection();"
-//L"	var divRec = document.getElementById(whichid);"
-//L"	if (divRec == null) {alert('could not locate term record');return;}"
-//L"	window.curDivRec = divRec;"
-//L"	var curTerm = divRec.getAttribute('lwtterm');"
-//L"	document.getElementById('lwtSetTermLabel').textContent = curTerm;"
-//L"	document.getElementById('lwtshowtrans').textContent = window.curDivRec.getAttribute('lwttrans');"
-//L"	document.getElementById('lwtshowrom').textContent = window.curDivRec.getAttribute('lwtrom');"
-//L"	var lastterm = document.getElementById('lwtlasthovered');"
-//L"	if (lastterm == null) {alert('could not loccated lasthovered field');}"
-//L"	lastterm.setAttribute('lwtterm', curTerm);"
-//L"	lastterm.setAttribute('lwtstat', divRec.getAttribute('lwtstat'));"
-//L"	setSelection(origin, lastterm, curTerm);"
-//L"	fixPageXY(e);"
-//L"	lwtshowinlinestat(e, curTerm, origin);"
-//L"}"
-//L""
-//L"function lwtStartEdit()"
-//L"{"
-//L"	document.getElementById('lwtshowtrans').textContent = window.curDivRec.getAttribute('lwttrans');"
-//L"	document.getElementById('lwtshowrom').textContent = window.curDivRec.getAttribute('lwtrom');"
-//L"	document.getElementById('lwtcurinfoterm').setAttribute('lwtterm', window.curDivRec.getAttribute('lwtterm'));"
-//L"}"
-//L""
-//L"function lwtshowinlinestat(e, curTerm, origin)"
-//L"{"
-//L"	var statbox = null;"
-//L"	var curStat = '';"
-//L""
-//L"	if (window.mwTermBegin != null)"
-//L"		statbox = document.getElementById('lwtInlineMWEndPopup');"
-//L"	else"
-//L"	{"
-//L"		statbox = document.getElementById('lwtinlinestat');"
-//L"		curStat = document.getElementById('lwtcursel').className;"
-//L"		ExtrapLink(document.getElementById('lwtextrapdict1'), document.getElementById('lwtdict1').getAttribute('src'), curTerm);"
-//L"		ExtrapLink(document.getElementById('lwtextrapdict2'), document.getElementById('lwtdict2').getAttribute('src'), curTerm);"
-//L"		ExtrapLink(document.getElementById('lwtextrapgoogletrans'), document.getElementById('lwtgoogletrans').getAttribute('src'), curTerm);"
-//L"	}"
-//L""
-//L"	if (statbox == null)"
-//L"	{"
-//L"		alert('could not locate inline status change popup');"
-//L"		return;"
-//L"	}"
-//L""
-//L"	window.curStatbox = statbox;"
-//L""
-//L"	var posElem = origin;"
-//L"	var altElem = e.srcElement;"
-//L"	var inlineTop2 = (totalTopOffset(posElem) + posElem.offsetHeight - 2);"
-//L"	var inlineTop = totalTopOffset(posElem);"
-//L"	if (curStat.indexOf('9') >= 0)"
-//L"	{"
-//L"		inlineTop -= 2;"
-//L"	}"
-//L""
-//L""
-//L"	var tlo = totalLeftOffset(posElem);window.status = window.innerWidth + '';"
-//L"	if (tlo + statbox.offsetWidth > window.innerWidth)"
-//L"		tlo = tlo + posElem.offsetWidth - 81;"
-//L"	statbox.style.left = tlo + 'px';"
-//L"	document.getElementById('lwtTermTrans').style.height = posElem.offsetHeight + 'px';"
-//L"	document.getElementById('lwtTermTrans2').style.height = posElem.offsetHeight + 'px';"
-//L"	statbox.style.top = inlineTop + 'px';"
-//L""
-//L"	var inlineBottom = inlineTop + statbox.offsetHeight;"
-//L"	statbox.style.display = 'block';"
-//L"	if (inlineBottom > window.pageYOffset + window.innerHeight)"
-//L"		statbox.scrollIntoView(false);"
-//L"}"
-//L""
-//L"function traverseDomTree_NextNodeByTagName(elem, aTagName)"
-//L"{"
-//L"	if (elem.hasChildNodes() == true)"
-//L"	{"
-//L"		if (elem.firstChild.tagName == aTagName)"
-//L"			return elem.firstChild;"
-//L"		else"
-//L"			return traverseDomTree_NextNodeByTagName(elem.firstChild, aTagName);"
-//L"	}"
-//L""
-//L"	var possNextElem = elem.nextSibling;"
-//L"	if (possNextElem == null)"
-//L"	{"
-//L"		while (elem.parentNode.nextSibling == null)"
-//L"		{"
-//L"			elem = elem.parentNode;"
-//L"			if (elem == null)"
-//L"				return null;"
-//L"		}"
-//L""
-//L"		if (elem.parentNode.nextSibling.tagName == aTagName)"
-//L"			return elem.parentNode.nextSibling;"
-//L"		else"
-//L"			return traverseDomTree_NextNodeByTagName(elem.parentNode.nextSibling, aTagName);"
-//L"	}"
-//L""
-//L"	if (possNextElem.tagName == aTagName)"
-//L"		return possNextElem;"
-//L"	else"
-//L"		return traverseDomTree_NextNodeByTagName(possNextElem, aTagName);"
-//L"}"
-//L""
-//L"function beginMW()"
-//L"{"
-//L"	window.mwTermBegin = document.getElementById('lwtcursel');"
-//L"	lwtcontextexit();"
-//L"}"
-//L""
-//L"function cancelMW()"
-//L"{"
-//L"	window.mwTermBegin = null;"
-//L"	lwtcontextexit();"
-//L"}"
-//L""
-//L"function captureMW(newStatus)"
-//L"{"
-//L"	var newTerm = getChosenMWTerm(document.getElementById('lwtcursel'));"
-//L"	cancelMW();"
-//L"	if (newTerm != '')"
-//L"	{"
-//L"		var lastterm = document.getElementById('lwtlasthovered');"
-//L"		if (lastterm == null) {alert('could not locate lasthovered field');}"
-//L"		lastterm.setAttribute('lwtterm', newTerm);"
-//L"		lastterm.setAttribute('lwtstat', '0');"
-//L""
-//L"		switch(newStatus)"
-//L"		{"
-//L"			case 49:"
-//L"				document.getElementById('lwtsetstat1').click();"
-//L"				break;"
-//L"			case 50:"
-//L"				document.getElementById('lwtsetstat2').click();"
-//L"				break;"
-//L"			case 51:"
-//L"				document.getElementById('lwtsetstat3').click();"
-//L"				break;"
-//L"			case 52:"
-//L"				document.getElementById('lwtsetstat4').click();"
-//L"				break;"
-//L"			case 53:"
-//L"				document.getElementById('lwtsetstat5').click();"
-//L"				break;"
-//L"			case 87:"
-//L"				document.getElementById('lwtsetstat99').click();"
-//L"				break;"
-//L"			case 73:"
-//L"				document.getElementById('lwtsetstat98').click();"
-//L"				break;"
-//L"		}"
-//L"	}"
-//L"	else"
-//L"		alert('Not a valid composite term selection.');"
-//L"}"
-//L""
-//L"function getChosenMWTerm(elemLastPart)"
-//L"{"
-//L"	var bWithSpaces = false;"
-//L"	if (document.getElementById('lwtwithspaces').getAttribute('value') == 'yes')"
-//L"		bWithSpaces = true;"
-//L""
-//L"	var curTerm = window.mwTermBegin.getAttribute('lwtterm');"
-//L"	if (curTerm.length <= 0)"
-//L"		return '';"
-//L"	var chosenMWTerm = curTerm;"
-//L""
-//L"	var elem = window.mwTermBegin;"
-//L"	for (var i = 0; i < 8; i++)"
-//L"	{"
-//L"		elem = traverseDomTree_NextNodeByTagName(elem, 'SPAN');"
-//L""
-//L"		if (elem == null)"
-//L"			return '';"
-//L""
-//L"		curTerm = elem.getAttribute('lwtterm');"
-//L"		if (curTerm.length <= 0)"
-//L"			i--;"
-//L"		else"
-//L"		{"
-//L"			if (bWithSpaces == true)"
-//L"				chosenMWTerm += ' ';"
-//L"			"
-//L"			chosenMWTerm += curTerm;"
-//L""
-//L"			if (elem == elemLastPart)"
-//L"				return chosenMWTerm;"
-//L"		}"
-//L"	}"
-//L""
-//L"	return '';"
-//L"}"
-//L""
-//L"function getPossibleMWTermParts(elem)"
-//L"{"
-//L"	var mwList = new Array(8);"
-//L"	for (var i = 0; i < 8; i++)"
-//L"	{"
-//L"		mwList[i] = '';"
-//L"	}"
-//L""
-//L"	var curTerm = elem.getAttribute('lwtterm');"
-//L"		"
-//L"	if (curTerm.length <= 0)"
-//L"		return mwList;"
-//L""
-//L"	for (0; i < 8; i++)"
-//L"	{"
-//L"		elem = traverseDomTree_NextNodeByTagName(elem, 'SPAN');"
-//L""
-//L"		if (elem == null)"
-//L"			return mwList;"
-//L""
-//L"		if (elem.className == 'lwtsent')"
-//L"			return mwList;"
-//L""
-//L"		curTerm = elem.getAttribute('lwtterm');"
-//L"		if (curTerm.length <= 0)"
-//L"			i--;"
-//L"		else"
-//L"			mwList[i] = curTerm;"
-//L"	}"
-//L""
-//L"	return mwList;"
-//L"}"
-//L"function getMWTermPartsAccrued(elem)"
-//L"{"
-//L"	var parts = getMWTermParts(elem);"
-//L"	var partsAccrued = new Array(8);"
-//L""
-//L"	for (var i = 0; i < 8; i++)"
-//L"	{"
-//L"		mwList[i] = '';"
-//L"	}"
-//L""
-//L"	var bWithSpaces = false;"
-//L"	if (document.getElementById('lwtwithspaces').getAttribute('value') == 'yes')"
-//L"		bWithSpaces = true;"
-//L""
-//L"	var curTerm = elem.getAttribute('lwtterm');"
-//L"		"
-//L"	if (curTerm.length <= 0)"
-//L"		return mwList;"
-//L""
-//L"	var accruedTerm = curTerm;"
-//L""
-//L"	for (i = 0; i < 8 && parts[i] != ''; i++)"
-//L"	{"
-//L"		if (bWithSpaces == true)"
-//L"			accruedTerm += ' ';"
-//L""
-//L"		accruedTerm += parts[i];"
-//L"		partsAccrued[i] = accruedTerm;"
-//L"	}"
-//L""
-//L"	return partsAccrued;"
-//L"	"
-//L"}"
-
-//			);
-
+		IHTMLElement* pHead = chaj::DOM::GetHeadFromDoc(pDoc); SmartCOMRelease scHead(pHead);
+		IHTMLElement* pBody = chaj::DOM::GetBodyFromDoc(pDoc); SmartCOMRelease scBody(pBody);
+		IHTMLElement* pScript = CreateElement(pDoc, L"script"); SmartCOMRelease scScript(pScript);
+		IHTMLDOMNode* pScriptNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pScript); SmartCOMRelease scScriptNode(pScriptNode);
+		if (!pHead || !pBody || !pScript || !pScriptNode)
+		{
+			TRACE(L"Unable to append lwt javascript properly.\n");
+			return;
+		}
 
 		chaj::DOM::SetAttributeValue(pScript, L"type", L"text/javascript");
-		chaj::DOM::SetElementInnerText(pScript, out);
+		chaj::DOM::SetElementInnerText(pScript, wJavascript);
 
 		bool DoHead = false;
-		if (pHead && DoHead)
+		if (DoHead)
 		{
-			IHTMLDOMNode* pHeadNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pHead);
-			IHTMLDOMNode* pScriptNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pScript);
+			IHTMLDOMNode* pHeadNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pHead); SmartCOMRelease scHeadNode(pHeadNode);
 			IHTMLDOMNode* pNewScriptNode;
 			HRESULT hr = pHeadNode->appendChild(pScriptNode, &pNewScriptNode);
 			if (FAILED(hr))
-				TRACE(L"Unable to append javacript child. 23328ijf");
+				TRACE(L"Unable to append javacript child. 23328ijf\n");
 			pNewScriptNode->Release();
-			pScriptNode->Release();
-			pHeadNode->Release();
-
-			pHead->Release();
-		}
-		if (pBody && !DoHead)
-		{
-			IHTMLDOMNode* pBodyNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pBody);
-			IHTMLDOMNode* pScriptNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pScript);
-			IHTMLDOMNode* pNewScriptNode;
-			HRESULT hr = pBodyNode->appendChild(pScriptNode, &pNewScriptNode);
-			pNewScriptNode->Release();
-			pScriptNode->Release();
-			pBodyNode->Release();
-
-			pHead->Release();
 		}
 		else
-			TRACE(L"Unable to append lwt javascript properly to head");
+		{
+			IHTMLDOMNode* pBodyNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pBody); SmartCOMRelease scBodyNode(pBodyNode);
+			IHTMLDOMNode* pNewScriptNode;
+			HRESULT hr = pBodyNode->appendChild(pScriptNode, &pNewScriptNode);
+			if (FAILED(hr))
+				TRACE(L"Unable to append javacript child. 2546suhfuugs\n");
+			pNewScriptNode->Release();
+		}
 	}
 	/*
 	AppendAnnotatedContent_MaintainBookmarks
@@ -3108,7 +2597,7 @@ public:
 					};
 
 					wstring curTerm = tknCanonical[i][j];
-					if (usetPageMWList.count(curTerm) != 0) //this terms starts some MWTerm
+					if (usetCacheMWFragments.count(curTerm) != 0) //this terms starts some MWTerm
 					{
 
 						stack<mwVals> stkMWTerms;
@@ -3126,7 +2615,7 @@ public:
 								curTerm.append(L" ");
 							curTerm += tknCanonical[i][k];
 
-							if (usetPageMWList.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
+							if (usetCacheMWFragments.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 								break;
 
 							unordered_map<wstring,TermRecord>::const_iterator it = cache->find(curTerm);
@@ -3190,7 +2679,7 @@ public:
 	//					curWord.append(L" ");
 	//				curWord += WordSansBookmarks(vSentencesVWords[indSentence][indTerm]);
 
-	//				if (usetPageMWList.count(curWord) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
+	//				if (usetCacheMWFragments.count(curWord) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 	//					break;
 
 	//				unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
@@ -3250,7 +2739,7 @@ public:
 	//					curWord.append(L" ");
 	//				curWord += WordSansBookmarks(vSentencesVWords[indSentence][indTerm]);
 
-	//				if (usetPageMWList.count(curWord) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
+	//				if (usetCacheMWFragments.count(curWord) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 	//					break;
 
 	//				unordered_map<wstring,TermRecord>::iterator it = cache->find(curWord);
@@ -3296,7 +2785,6 @@ public:
 	}
 	void GetTokensWithoutBookmarks(TokenStruct& tokensWithout, const TokenStruct& tokens)
 	{
-		TRACE(L"%s", L"Calling GetTokensWithoutBookmarks\n");
 		for (vector<Token_Sentence>::size_type i = 0; i < tokens.size(); ++i)
 		{
 			Token_Sentence ts(tokens[i].bDigested);
@@ -3308,11 +2796,9 @@ public:
 
 			tokensWithout.push_back(ts);
 		}
-		TRACE(L"%s", L"Leaving GetTokensWithoutBookmarks\n");
 	}
 	void GetTokensCanonical(TokenStruct& tokensCanonical, const TokenStruct& tokensWithout)
 	{
-		TRACE(L"%s", L"Calling GetTokensCanonical\n");
 		for (vector<Token_Sentence>::size_type i = 0; i < tokensWithout.size(); ++i)
 		{
 			Token_Sentence ts(tokensWithout[i].bDigested);
@@ -3324,7 +2810,6 @@ public:
 
 			tokensCanonical.push_back(ts);
 		}
-		TRACE(L"%s", L"Leaving GetTokensCanonical\n");
 	}
 	/*	
 		!!! External dependencies: Adding New MWSpans relies on the filtering of class global TreeWalker pTW
@@ -3372,7 +2857,7 @@ public:
 
 		// replace body text with added annotations
 		_bstr_t bNewBodyContent = theNewsBodyContent.c_str();
-		IHTMLElement* pBody = GetBodyAsElementFromDoc(pDoc);
+		IHTMLElement* pBody = GetBodyFromDoc(pDoc);
 		HRESULT hr = pBody->put_innerHTML(bNewBodyContent.GetBSTR());
 		pBody->Release();
 	}
@@ -3426,7 +2911,7 @@ public:
 
 		pBody->Release();
 	}
-	void AppendTermRecordDiv(IHTMLElement* pBody, const wstring& wstrTerm, const TermRecord& rec)
+	void AppendTermDivRec(IHTMLElement* pBody, const wstring& wTermCanonical, const TermRecord& rec)
 	{
 		wstring out;
 		out.append(L"<div id=\"lwt");
@@ -3434,7 +2919,7 @@ public:
 		out.append(L"\" lwtstat=\"");
 		out.append(rec.wStatus);
 		out.append(L"\" lwtterm=\"");
-		out.append(wstrTerm);
+		out.append(wTermCanonical);
 		out.append(L"\" lwttrans=\"");
 		out.append(rec.wTranslation);
 		out.append(L"\" lwtrom=\"");
@@ -3442,14 +2927,14 @@ public:
 		out.append(L"\" />");
 		chaj::DOM::AppendHTMLBeforeEnd(out, pBody);
 	}
-	void AppendTermRecordDivs(IHTMLElement* pBody)
+	void AppendTermDivRecs(IHTMLElement* pBody)
 	{
 		unordered_set<wstring> termSet;
 		GetSetOfTerms(termSet, tknCanonical);
 
 		for (auto it = termSet.cbegin(); it != termSet.cend(); ++it)
 		{
-			AppendTermRecordDiv(pBody, *it, cache->find(*it)->second);
+			AppendTermDivRec(pBody, *it, cache->find(*it)->second);
 		}
 	}
 	wstring GetDropdownHTML_TableSet()
@@ -3502,8 +2987,15 @@ public:
 		
 		return wResult;
 	}
-	void AppendHtmlBlocks(IHTMLDocument2* pDoc, IHTMLElement* pBody)
+	void AppendHtmlBlocks(IHTMLDocument2* pDoc)
 	{
+		if (!pDoc)
+			return;
+
+		IHTMLElement* pBody = GetBodyFromDoc(pDoc); SmartCOMRelease scBody(pBody);
+		if (!pBody)
+			return;
+
 		wstring out;
 		out.append(
 		L"<div id=\"lwtinlinestat\" style=\"display:none;position:absolute;\" onmouseout=\"lwtdivmout(event);\">"
@@ -3633,7 +3125,7 @@ public:
 						if (it->second.nTermsBeyond != 0) //the term might participate in multiword terms
 						{
 							wstring curTerm = tknCanonical[i][j];
-							if (usetPageMWList.count(curTerm) != 0) //this terms starts some MWTerm
+							if (usetCacheMWFragments.count(curTerm) != 0) //this terms starts some MWTerm
 							{
 								int nSkipCount = 0;
 								// gather a stack of term statuses for tracked multiword terms that start at this word
@@ -3649,7 +3141,7 @@ public:
 										curTerm.append(L" ");
 									curTerm += tknCanonical[i][k];
 
-									if (usetPageMWList.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
+									if (usetCacheMWFragments.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 										break;
 
 									unordered_map<wstring,TermRecord>::const_iterator it = cache->find(curTerm);
@@ -3680,9 +3172,9 @@ public:
 		wstring out;
 		int lwtid = 1;
 
-		AppendTermRecordDivs(pBody);
-		AppendHtmlBlocks(pDoc, pBody);
-		/* specifically last after all elements placed */ AppendInfoBoxJavascript(pDoc, pBody);
+		AppendTermDivRecs(pBody);
+		AppendHtmlBlocks(pDoc);
+		/* specifically last after all elements placed */ AppendJavascript(pDoc);
 
 		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc);
 		assert(pSetupLink);
@@ -3728,7 +3220,7 @@ public:
 				if (it->second.nTermsBeyond != 0) //the term might participate in multiword terms
 				{
 					wstring curTerm = tknCanonical[i][j];
-					if (usetPageMWList.count(curTerm) != 0) //this terms starts some MWTerm
+					if (usetCacheMWFragments.count(curTerm) != 0) //this terms starts some MWTerm
 					{
 						stack<mwVals> stkMWTerms;
 						int nSkipCount = 0;
@@ -3745,7 +3237,7 @@ public:
 								curTerm.append(L" ");
 							curTerm += tknCanonical[i][k];
 
-							if (usetPageMWList.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
+							if (usetCacheMWFragments.count(curTerm) == 0) //this, and any further MWterms with this base are not in this page, even if they exist in db and/or cache
 								break;
 
 							cache_cit it = cache->cfind(curTerm);
@@ -3908,21 +3400,1559 @@ public:
 		else
 			return E_FAIL;
 	}
-
-	void OnPageFullyLoaded(LPSTREAM pBrowserStream)
+	IDOMTreeWalker* GetDocumentTree(IHTMLDocument2* pDoc)
 	{
+		if (!pDoc) // crash guard for arguments
+			return nullptr;
+
+		HRESULT hr;
+
+		IHTMLElement* pRoot = nullptr;
+		pDoc->get_body(&pRoot); SmartCOMRelease scRoot(pRoot);
+		if (!pRoot)
+			return nullptr;
+
+		IDocumentTraversal* pDT = nullptr;
+		hr = pDoc->QueryInterface(IID_IDocumentTraversal, (void**)&pDT); SmartCOMRelease scDT(pDT);
+		if (!pDT)
+			return nullptr;
+
+		IDOMTreeWalker* pTW = nullptr;
+		VARIANT varNull; varNull.vt = VT_NULL;
+		hr = pDT->createTreeWalker(pRoot, SHOW_ELEMENT | SHOW_TEXT, &varNull, VARIANT_TRUE, &pTW); // allow requestor to Release
+		return pTW;
+	}
+	cache_it CacheTermAndReturnIt(const wstring& wWord) // optimizable
+	{
+		list<wstring> cWord;
+		cWord.push_back(wWord);
+		EnsureRecordEntryForEachWord(cWord);
+		return cache->find(wWord);
+	}
+	/*
+		Function ParseTextNode_GetReplacementNode
+
+		This function is heavily interrelated with ParseTextNode, in that together they manage reference counts in a non-independent way
+
+		Return value:
+			--(on error): returns nullptr
+			--(otherwise): pointer to node to replace
+		Exit conditions:
+			--the pText that came in was released
+			--If return is nullptr, no new pText has been obtained
+			--If return is non-nullptr, a new Ptext had been obtain if bFurtherText, otherwise one has ~not~ been obtained
+	*/
+
+	void ParseTextNode(IHTMLDOMTextNode* pText, IHTMLDocument2* pDoc)
+	{
+		return ParseTextNode_AllAtOnce(pText, pDoc);
+		if (!pText || ! pDoc)
+			return;
+
+		_bstr_t bText;
+		pText->get_data(bText.GetAddress());
+		if (!bText.length())
+			return;
+
+		wstring wText(bText);
+		if (wText.empty()) // guarantee while loop entry to help manage pText->Release()
+			return;
+
+		pText->AddRef(); // our loop will reuse variable and release each time
+
+		_bstr_t bTag(L"span");
+
+		wstring regPtn;
+		regPtn.append(L"[");
+		regPtn += WordChars;
+		regPtn.append(L"]");
+		if (bWithSpaces)
+		{
+			regPtn.append(L"+");
+		}
+
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wsmatch wsm;
+
+		// pText must be Released once in each loop
+		// if pText subsequently takes on a new instance, another loop must occur and Release it
+		// consequently, no loop past the first must ever occur unless pText has taken on a new instance
+		while (!wText.empty()) // there is still text in this node left to search
+		{
+			bool bItemFound;
+
+			// if and else branch both release pText
+			try
+			{
+				bItemFound = std::regex_search(wText, wsm, wrgx);
+			}
+			catch(...)
+			{
+				TRACE(L"Caught an exception: 3925isdhfhglooki.\n");
+				pText->Release();
+				break;
+			}
+
+			if (!bItemFound)
+			{
+				pText->Release();
+				break;
+			}
+			else
+			{
+				wstring wWord;
+				IHTMLDOMNode* pReplaceNode = nullptr;
+				IHTMLDOMTextNode* pInsertPoint = nullptr;
+				
+				try
+				{
+					wWord = wsm.str();
+					wText = wsm.suffix();
+					pInsertPoint = SplitTextNode(pText, static_cast<long>(wsm.position())); // add smart pointer directly after try scope
+				}
+				catch(...)
+				{
+					TRACE(L"Caught an exception: 3950sihdf.\n");
+					pText->Release();
+					if (pInsertPoint) // successfully constructed??
+						pInsertPoint->Release();
+					break;
+				}
+				SmartCOMRelease scInsertPoint(pInsertPoint);
+
+				pText->Release();
+
+				if (!pInsertPoint)
+				{
+					TRACE(L"Forcibly breaking out of while loop. TextNode parsing abandoned. 3959ijoij\n");
+					break;
+				}
+					
+				if (!wText.empty()) // will loop due to further text, must have a new pText instance for that loop to Release
+				{
+					pText = SplitTextNode(pInsertPoint, static_cast<long>(wsm.length())); // not automatically Released
+					if (!pText) // perhaps due to a memory failure, etc.
+					{
+						// we must not loop without a new pText; break to protect reference integrity
+						// at the point we break, the loop must have Released pText once
+						TRACE(L"Forcibly breaking out of while loop. TextNode parsing abandoned. 3971sihdefgdytydg\n");
+						break;
+					}
+				}
+
+				pReplaceNode = GetAlternateInterface<IHTMLDOMTextNode,IHTMLDOMNode>(pInsertPoint); SmartCOMRelease scReplaceNode(pReplaceNode);
+				if (!pReplaceNode) // we cannot highlight this item due to a failure
+				{
+					// we could just release pText if there will be another loop and break instead, however
+					// a design choice was made to give further looping a fighting chance
+					continue;
+				}
+
+				IHTMLElement *pNew = nullptr;
+				HRESULT hr = pDoc->createElement(bTag.GetBSTR(), &pNew); SmartCOMRelease scNew(pNew);
+				if (FAILED(hr) || !pNew)
+					continue; // same logic for this continue as above
+
+				IHTMLDOMNode* pNewNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pNew); SmartCOMRelease scNewNode(pNewNode);
+				if (!pNewNode)
+					continue; // same logic for this continue as above
+					
+				cache_cit it = cache->find(wWord);
+
+				if (TermNotCached(it))
+					it = CacheTermAndReturnIt(wWord);
+
+				assert(it != cache->end());
+
+				dhr(chaj::DOM::SetElementInnerText(pNew, wWord));
+
+				dhr(chaj::DOM::SetElementClass(pNew, L"lwtStat" + it->second.wStatus));
+				dhr(chaj::DOM::SetAttributeValue(pNew, L"lwtTerm", chaj::str::wstring_tolower(wWord)));
+				dhr(chaj::DOM::SetAttributeValue(pNew, L"onmouseover", L"lwtmover('lwt" + it->second.wStatus + L"', event, this);"));
+				dhr(chaj::DOM::SetAttributeValue(pNew, L"style", L"display:inline;margin:0px;color:black;"));
+				dhr(chaj::DOM::SetAttributeValue(pNew, L"onmouseout", L"lwtmout(event)"));
+
+				hr = pReplaceNode->replaceNode(pNewNode, &pReplaceNode);
+			}
+		}
+	}
+	void ParseTextNode_AllAtOnce2(IHTMLDOMTextNode* pText, IHTMLDocument2* pDoc, unsigned int&  count,
+		shared_ptr<atomic_int> sp_aiSingleWordsCached, shared_ptr<atomic_int> sp_aiMWTermsCached)
+	{
+		if (!pText || ! pDoc)
+			return;
+
+		_bstr_t bText;
+		pText->get_data(bText.GetAddress());
+		if (!bText.length())
+			return;
+
+		wstring wText(bText);
+		if (wText.empty())
+			return;
+
+		wstring wOuterHTML;
+		unsigned int lastPosition = 0;
+		unsigned int textLength = wText.length();
+
+		IHTMLElement *pNew = CreateElement(pDoc, L"span"); SmartCOMRelease scNew(pNew);
+		if (!pNew)
+			return;
+
+		IHTMLDOMNode* pNewNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pNew); SmartCOMRelease scNewNode(pNewNode);
+		IHTMLDOMNode* pTextNode = GetAlternateInterface<IHTMLDOMTextNode,IHTMLDOMNode>(pText); SmartCOMRelease scTextNode(pTextNode);
+		IHTMLElement* pBody = GetBodyFromDoc(pDoc); SmartCOMRelease scBody(pBody);
+		if (!pBody || !pNewNode || !pTextNode)
+			return;
+
+		wstring regPtn = L"[" + WordChars + L"]";
+		if (bWithSpaces)
+			regPtn.append(L"+");
+
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wregex_iterator regit(wText.begin(), wText.end(), wrgx);
+		wregex_iterator rend;
+
+		std::condition_variable cv;
+		std::mutex m;
+
+		while (regit != rend)
+		{
+			if (count + 1 > *sp_aiSingleWordsCached)// || count + 1 > *sp_aiMWTermsCached)
+			{
+				// wait for caching threads to catch up
+				{
+					// todo: ensure this doesn't permanently lock, use a timeout of some sort or something
+					std::unique_lock<std::mutex> lk(m);
+					bool moveon = false;
+					while (!moveon)
+					{
+						moveon = cv.wait_for(lk, std::chrono::milliseconds(100), [count,sp_aiSingleWordsCached,sp_aiMWTermsCached]
+							{return (*sp_aiSingleWordsCached >= count + 1);});// && *sp_aiMWTermsCached >= count + 1);});
+					}
+				}
+			}
+
+			if (regit->position() != lastPosition)
+				wOuterHTML.append(wstring(wText, lastPosition, regit->position() - lastPosition));
+
+			lastPosition = regit->position() + regit->length();
+			wstring wTermCanonical = chaj::str::wstring_tolower(regit->str());
+					
+			cache_cit it = cache->cfind(wTermCanonical);
+			//assert(it != cache->end());
+			if (it != cache->end())
+			{
+				AppendSoloWordSpan(wOuterHTML, regit->str(), wTermCanonical, &(it->second));
+			}
+			
+			count++;
+			regit++;
+		}
+		if (!lastPosition) // no words found, don't bother with replacement
+			return;
+
+		if (lastPosition != textLength)
+			wOuterHTML.append(wstring(wText, lastPosition)); // append all remaining
+
+		HRESULT hr = pTextNode->replaceNode(pNewNode, &pTextNode);
+		if (SUCCEEDED(hr))
+		{
+			hr = chaj::DOM::SetElementOuterHTML(pNew, wOuterHTML);
+		}
+	}
+	wstring GetText_Helper__ParseTextNode_AllAtOnce3(IHTMLDOMTextNode* pText)
+	{
+		wstring wText;
+		_bstr_t bText;
+		pText->get_data(bText.GetAddress());
+		if (!bText.length())
+			return wText;
+
+		wText = bText;
+		return wText;
+	}
+	void TT_DeleteMe(const wstring& wText)
+	{
+		list<wstring> contiguousWords;
+		list<wstring> parts;
+		vector<wstring> words;
+		unsigned int lastPosition = 0;
+		unsigned int textLength = wText.length();
+
+		wstring regPtn = L"[" + WordChars + L"]";
+		if (bWithSpaces)
+			regPtn.append(L"+");
+
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wregex_iterator regit(wText.begin(), wText.end(), wrgx);
+		wregex_iterator rend;
+
+		while (regit != rend)
+		{
+			if (regit->position() != lastPosition)
+				parts.push_back(wstring(wText, lastPosition, regit->position() - lastPosition));
+
+			lastPosition = regit->position() + regit->length();
+			words.push_back(regit->str());
+			regit++;
+		}
+		if (!lastPosition) // no words in text
+		{
+			parts.push_back(wText);
+		}
+	}
+	void ParseTextNode_AllAtOnce3(IHTMLDOMTextNode* pText, IHTMLDocument2* pDoc, unordered_set<wstring>& usetPageTerms)
+	{
+		if (!pText || !pDoc)
+			return;
+
+		wstring wText = GetText_Helper__ParseTextNode_AllAtOnce3(pText);
+		if (wText.empty())
+			return;
+
+		wstring wOuterHTML;
+		unsigned int lastPosition = 0;
+		unsigned int textLength = wText.length();
+
+		IHTMLElement *pNew = CreateElement(pDoc, L"span"); SmartCOMRelease scNew(pNew);
+		if (!pNew)
+			return;
+
+		IHTMLDOMNode* pNewNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pNew); SmartCOMRelease scNewNode(pNewNode);
+		IHTMLDOMNode* pTextNode = GetAlternateInterface<IHTMLDOMTextNode,IHTMLDOMNode>(pText); SmartCOMRelease scTextNode(pTextNode);
+		IHTMLElement* pBody = GetBodyFromDoc(pDoc); SmartCOMRelease scBody(pBody);
+		if (!pBody || !pNewNode || !pTextNode)
+			return;
+
+		wstring regPtn = L"[" + WordChars + L"]";
+		if (bWithSpaces)
+			regPtn.append(L"+");
+
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wregex_iterator regit(wText.begin(), wText.end(), wrgx);
+		wregex_iterator rend;
+
+		vector<wstring> words;
+		wstring termSpacer = L"~~!@~!XXSpacerLwtBho";
+
+		// get list of words with spacers at breaks between possible multi-word terms
+		while (regit != rend)
+		{
+			if (regit->position() != lastPosition)
+			{
+				wstring skipped = wstring(wText.begin()+lastPosition, wText.begin()+regit->position());
+				if (!bWithSpaces ||
+					(bWithSpaces && !std::all_of(skipped.begin(), skipped.end(), [](wchar_t in){return in == L' ';})))
+					words.push_back(termSpacer);
+			}
+
+			lastPosition = regit->position() + regit->length();
+			words.push_back(regit->str());
+			regit++;
+		}
+		if (words.empty())
+			return; // no words found, just return
+
+		// create a stack of records for any multi-word term records and add their div recs to the page
+		lastPosition = 0; // reset position
+		int curPosition = 0;
+		for(unsigned int i = 0; i < words.size(); ++i)
+		{
+			if (words[i] == termSpacer)
+				continue;
+
+			stack<tuple<wstring,TermRecord,int>> mwTerms;
+			wstring firstWord = chaj::str::wstring_tolower(words[i]);
+			wstring term = firstWord;
+
+			if (usetCacheMWFragments.find(term) != usetCacheMWFragments.end())
+				// some mwTerms begins with this word
+			{
+				for(unsigned int j = 1; i+j < LWT_MAX_MWTERM_LENGTH && i+j < words.size(); ++j)
+				{
+					if (words[i+j] == termSpacer)
+						break;
+
+					if (bWithSpaces)
+						term += L" ";
+					term += chaj::str::wstring_tolower(words[i+j]);
+
+					if (usetCacheMWFragments.find(term) == usetCacheMWFragments.end())
+						// to mwTerms begin with this substring
+						break;
+
+					cache_cit it = cache->cfind(term);
+					if (TermCached(it))
+					{
+						mwTerms.push(make_tuple(term, it->second, j+1));
+						if (usetPageTerms.find(term) == usetPageTerms.end())
+						{
+							AppendTermDivRec(pBody, term, it->second);
+							usetPageTerms.insert(term);
+						}
+					}
+				}
+			}
+
+			curPosition = wText.find(words[i], lastPosition);
+			assert(curPosition != wstring::npos); // we already found the word, it should still be there
+
+			if (lastPosition != curPosition)
+				wOuterHTML.append(wstring(wText.begin()+lastPosition, wText.begin()+curPosition));
+
+			lastPosition = curPosition + firstWord.size();
+
+			while (mwTerms.size() > 0)
+			{
+				tuple<wstring, TermRecord, int> current = mwTerms.top(); mwTerms.pop();
+
+				AppendMWSpan(wOuterHTML, get<0>(current), &get<1>(current), to_wstring(get<2>(current)));
+			}
+
+			cache_cit it = cache->cfind(firstWord);
+			if (TermNotCached(it))
+			{
+				it = CacheTermAndReturnIt(firstWord);
+			}
+			assert(it != cache->end());
+			AppendSoloWordSpan(wOuterHTML, words[i], firstWord, &it->second);
+			AppendTermDivRec(pBody, firstWord, it->second);
+		}
+
+		if (lastPosition != wText.size()) // non-word text beyond last found word
+			wOuterHTML.append(wText.begin()+lastPosition, wText.end()); // append all remaining
+
+		HRESULT hr = pTextNode->replaceNode(pNewNode, &pTextNode);
+		if (SUCCEEDED(hr))
+			hr = chaj::DOM::SetElementOuterHTML(pNew, wOuterHTML);
+	}
+	void ParseTextNode_AllAtOnce(IHTMLDOMTextNode* pText, IHTMLDocument2* pDoc)
+	{
+		if (!pText || ! pDoc)
+			return;
+
+		_bstr_t bText;
+		pText->get_data(bText.GetAddress());
+		if (!bText.length())
+			return;
+
+		wstring wText(bText);
+		if (wText.empty())
+			return;
+
+		wstring wOuterHTML;
+		unsigned int lastPosition = 0;
+		unsigned int textLength = wText.length();
+
+		IHTMLElement *pNew = CreateElement(pDoc, L"span"); SmartCOMRelease scNew(pNew);
+		if (!pNew)
+			return;
+
+		IHTMLDOMNode* pNewNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pNew); SmartCOMRelease scNewNode(pNewNode);
+		IHTMLDOMNode* pTextNode = GetAlternateInterface<IHTMLDOMTextNode,IHTMLDOMNode>(pText); SmartCOMRelease scTextNode(pTextNode);
+		IHTMLElement* pBody = GetBodyFromDoc(pDoc); SmartCOMRelease scBody(pBody);
+		if (!pBody || !pNewNode || !pTextNode)
+			return;
+
+		wstring regPtn = L"[" + WordChars + L"]";
+		if (bWithSpaces)
+			regPtn.append(L"+");
+
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wregex_iterator regit(wText.begin(), wText.end(), wrgx);
+		wregex_iterator rend;
+
+		while (regit != rend)
+		{
+			if (regit->position() != lastPosition)
+				wOuterHTML.append(wstring(wText, lastPosition, regit->position() - lastPosition));
+
+			lastPosition = regit->position() + regit->length();
+			wstring wTermCanonical = chaj::str::wstring_tolower(regit->str());
+					
+			cache_cit it = cache->cfind(wTermCanonical);
+
+			if (TermNotCached(it))
+			{
+				it = CacheTermAndReturnIt(wTermCanonical);
+				AppendTermDivRec(pBody, wTermCanonical, it->second);
+			}
+
+			assert(it != cache->end());
+			AppendSoloWordSpan(wOuterHTML, regit->str(), wTermCanonical, &(it->second));
+			regit++;
+		}
+		if (!lastPosition) // no words found, don't bother with replacement
+			return;
+
+		if (lastPosition != textLength)
+			wOuterHTML.append(wstring(wText, lastPosition)); // append all remaining
+
+		HRESULT hr = pTextNode->replaceNode(pNewNode, &pTextNode);
+		if (SUCCEEDED(hr))
+		{
+			hr = chaj::DOM::SetElementOuterHTML(pNew, wOuterHTML);
+		}
+	}
+	void RoughInsert(list<wstring>& cWords, int nAtATime)
+	{
+		CacheDBHitsWithListRemove(cWords, nAtATime);
+		if (bShuttingDown)
+			return;
+
+		// cache misses with status 0
+		for(wstring wTerm : cWords)
+		{
+			if (bShuttingDown)
+				return;
+			cache->insert(unordered_map<wstring,TermRecord>::value_type(wTerm, TermRecord(L"0")));
+		}
+	}
+	void RoughInsertList(forward_list<wstring>& cWords, IHTMLElement* pBody, unordered_set<wstring>& pageDivRecs)
+	{	
+		wstring	wInList;
+
+		// create string of uncached terms
+		for (auto iter = cWords.begin(); iter != cWords.end(); ++iter)
+		{
+			cache_it it = cache->find(*iter);
+			if (TermNotCached(it))
+			{
+				if (!wInList.empty())
+					wInList.append(L",");
+
+				wInList.append(L"'");
+				wInList.append(EscapeSQLQueryValue(*iter));
+				wInList.append(L"'");
+			}
+		}
+
+		// cache uncached tracked terms
+		if (!wInList.empty())
+		{
+			wstring wQuery;
+			wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
+			wQuery.append(wTableSetPrefix);
+			wQuery.append(L"words where WoLgID = ");
+			wQuery.append(wLgID);
+			wQuery.append(L" AND WoTextLC in (");
+			wQuery.append(wInList);
+			wQuery.append(L")");
+
+			EnterCriticalSection(&CS_UseDBConn);
+			DoExecuteDirect(_T("1612isjdlfij"), wQuery);
+			while (tStmt.fetch_next())
+			{
+				wstring wLC = tStmt.field(1).as_string();
+				TermRecord rec(tStmt.field(2).as_string());
+				rec.wRomanization = tStmt.field(3).as_string();
+				rec.wTranslation = tStmt.field(4).as_string();
+				cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
+			}
+			tStmt.free_results();
+			LeaveCriticalSection(&CS_UseDBConn);
+		}
+
+		// at this point all terms in list that are tracked are cached
+
+		if (bShuttingDown)
+			return;
+
+		// add all necessary DivRecs to the page
+		for(wstring wTerm : cWords)
+		{
+			cache_cit it = cache->find(wTerm);
+			if (TermNotCached(it))
+			{
+				cache->insert(unordered_map<wstring,TermRecord>::value_type(wTerm, TermRecord(L"0")));
+				AppendTermDivRec(pBody, wTerm, TermRecord(L"0"));
+				pageDivRecs.insert(wTerm);
+			}
+			else if (pageDivRecs.find(wTerm) == pageDivRecs.end())
+			{
+				AppendTermDivRec(pBody, wTerm, it->second);
+				pageDivRecs.insert(wTerm);
+			}
+			
+			if (bShuttingDown)
+				return;
+		}
+	}
+	void Thread_MWHighlight(LPSTREAM pDocStream, forward_list<wstring>& cWords)
+	{
+		if (!pDocStream)
+			return;
+
+		IHTMLDocument2* pDoc = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDocStream));
+		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
+		if (FAILED(hr) || !pDoc)
+			return;
+
+		forward_list<wstring> possTerms;
+		
+		for (auto iter = cWords.begin(); iter != cWords.end(); ++iter)
+		{
+			auto subIter(iter);
+			++subIter;
+			unsigned int additionalTerms = 1;
+			wstring wCumTerm = *iter;
+			while (subIter != cWords.end() && additionalTerms < LWT_MAX_MWTERM_LENGTH)
+			{
+				wCumTerm += *subIter;
+				possTerms.push_front(wCumTerm);
+				++additionalTerms;
+				++subIter;
+			}
+		}
+	}
+		void Thread_CachePageMWTerms(LPSTREAM pDocStream, shared_ptr<vector<wstring>> sp_vWords)
+	{
+		if (!pDocStream || !sp_vWords)
+			return;
+
+		const int MAX_MYSQL_INLIST_LEN = 500;
+
+		IHTMLDocument2* pDoc = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
+		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
+		if (FAILED(hr) || !pDoc)
+			return;
+
+		for (int i = 0; i < sp_vWords->size(); i += MAX_MYSQL_INLIST_LEN)
+		{
+			wstring	wInList;
+
+			// create buffer of uncached terms
+			for (int j = 0; j < MAX_MYSQL_INLIST_LEN && i+j < sp_vWords->size(); ++j)
+			{
+				wstring wRoot = (*sp_vWords)[i+j];
+				wstring wTerm = wRoot;
+				for (unsigned int k = 1; k <= 8 && i+j+k < (*sp_vWords).size(); ++k)
+				{
+					if (this->bWithSpaces)
+						wTerm += L" ";
+
+					wTerm += (*sp_vWords)[i+j+k];
+
+					if (!wInList.empty())
+						wInList.append(L",");
+
+					wInList.append(L"'");
+					wInList.append(EscapeSQLQueryValue(wTerm));
+					wInList.append(L"'");
+				}
+			}
+
+			// cache uncached tracked terms
+			if (!wInList.empty())
+			{
+				wstring wQuery;
+				wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
+				wQuery.append(wTableSetPrefix);
+				wQuery.append(L"words where WoLgID = ");
+				wQuery.append(wLgID);
+				wQuery.append(L" AND WoTextLC in (");
+				wQuery.append(wInList);
+				wQuery.append(L")");
+
+				EnterCriticalSection(&CS_UseDBConn);
+				DoExecuteDirect(_T("1612isjdlfij"), wQuery);
+				while (tStmt.fetch_next())
+				{
+					wstring wLC = tStmt.field(1).as_string();
+					TermRecord rec(tStmt.field(2).as_string());
+					rec.wRomanization = tStmt.field(3).as_string();
+					rec.wTranslation = tStmt.field(4).as_string();
+					cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
+					UpdateCacheMWFragments(wLC);
+				}
+				tStmt.free_results();
+				LeaveCriticalSection(&CS_UseDBConn);
+			}
+			// at this point all terms in list that are tracked are cached
+
+			if (bShuttingDown)
+				return;
+		}
+	}
+	void Thread_CachePageMWTerms2(LPSTREAM pDocStream, 
+	                           shared_ptr<vector<wstring>> sp_vWords,
+							   vector<shared_ptr<atomic_int>> vAInts)
+	{
+		if (!pDocStream || !sp_vWords || vAInts.size() != 4)
+			return;
+
+		shared_ptr<atomic_int> sp_aiWordsCatalogued = vAInts[0];
+		shared_ptr<atomic_int> sp_aiTotalWords = vAInts[1];
+		shared_ptr<atomic_int> sp_aiMWTermsCached = vAInts[3];
+		const int MAX_MYSQL_INLIST_LEN = 500;
+
+		IHTMLDocument2* pDoc = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
+		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
+		if (FAILED(hr) || !pDoc)
+			return;
+
+		std::condition_variable cv;
+		std::mutex m;
+		int count = 0;
+
+		for (int i = 0;; i += MAX_MYSQL_INLIST_LEN)
+		{
+			wstring	wInList;
+
+			// create buffer of uncached terms
+			for (int j = 0; j < MAX_MYSQL_INLIST_LEN; ++j)
+			{
+				int curCatalogued = *sp_aiWordsCatalogued; // take a snapshot to help logic
+
+				if (i+j+8 >= curCatalogued) // we're done (likely) or need to wait for more words
+				{
+					// todo fix: this whole code block assumes totalwords > 0
+					// todo: handle case when there are 0 total words (by a timeout)
+					// wait until more words are catalogued or total is known
+					{
+					std::unique_lock<std::mutex> lk(m);
+					cv.wait(lk, [i,j,sp_aiWordsCatalogued,sp_aiTotalWords]
+								{return (i+j+8 < *sp_aiWordsCatalogued) || (*sp_aiTotalWords != 0);});
+					}
+
+					if (*sp_aiTotalWords == 0) // we must have more words available
+						__noop;
+					else // total must be known
+					{
+						if (i+j == *sp_aiTotalWords) // the one case we know for sure we're done
+							break;
+						else // i+j less, so continue on
+							__noop;
+					}
+				}
+
+				wstring wRoot = (*sp_vWords)[i+j];
+				wstring wTerm = wRoot;
+				for (unsigned int k = 1; k <= 8 && (*sp_aiTotalWords == 0 || i+j+k <= *sp_aiTotalWords); ++k)
+				{
+					if (this->bWithSpaces)
+						wTerm += L" ";
+
+					wTerm += (*sp_vWords)[i+j+k];
+
+					if (!wInList.empty())
+						wInList.append(L",");
+
+					wInList.append(L"'");
+					wInList.append(EscapeSQLQueryValue((*sp_vWords)[i+j]));
+					wInList.append(L"'");
+				}
+				count++;
+			}
+
+			// cache uncached tracked terms
+			if (!wInList.empty())
+			{
+				wstring wQuery;
+				wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
+				wQuery.append(wTableSetPrefix);
+				wQuery.append(L"words where WoLgID = ");
+				wQuery.append(wLgID);
+				wQuery.append(L" AND WoTextLC in (");
+				wQuery.append(wInList);
+				wQuery.append(L")");
+
+				EnterCriticalSection(&CS_UseDBConn);
+				DoExecuteDirect(_T("1612isjdlfij"), wQuery);
+				while (tStmt.fetch_next())
+				{
+					wstring wLC = tStmt.field(1).as_string();
+					TermRecord rec(tStmt.field(2).as_string());
+					rec.wRomanization = tStmt.field(3).as_string();
+					rec.wTranslation = tStmt.field(4).as_string();
+					cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
+					UpdateCacheMWFragments(wLC);
+				}
+				tStmt.free_results();
+				LeaveCriticalSection(&CS_UseDBConn);
+			}
+			// at this point all terms in list that are tracked are cached
+
+			(*sp_aiMWTermsCached) = count;
+
+			if (bShuttingDown)
+				return;
+		}
+	}
+	void Helper_Notify_Thread_CachePageWords(bool* pbHeadStartComplete, condition_variable* p_cv)
+	{
+		{
+			mutex m;
+			std::lock_guard<mutex> lk(m);
+			*pbHeadStartComplete = true;
+		}
+		p_cv->notify_all();
+	}
+	void Thread_CachePageWords(LPSTREAM pDocStream, shared_ptr<vector<wstring>> sp_vWords, condition_variable*  p_cv, bool* pbHeadStartComplete)
+	{
+		if (!pDocStream || !sp_vWords)
+			return;
+
+		const int MAX_MYSQL_INLIST_LEN = 500;
+
+		IHTMLDocument2* pDoc = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
+		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
+		if (FAILED(hr) || !pDoc)
+			return;
+
+		if ((*sp_vWords).size() == 0)
+		{
+			Helper_Notify_Thread_CachePageWords(pbHeadStartComplete, p_cv);
+		}
+		else
+		{
+			for (int i = 0; i < (*sp_vWords).size(); i += MAX_MYSQL_INLIST_LEN)
+			{
+				list<wstring> cWords;
+				wstring	wInList;
+
+				// create buffer of uncached terms
+				for (int j = 0; j < MAX_MYSQL_INLIST_LEN && i+j < (*sp_vWords).size(); ++j)
+				{
+					cache_it it = cache->find((*sp_vWords)[i+j]);
+					if (TermNotCached(it))
+					{
+						cWords.push_back((*sp_vWords)[i+j]);
+						if (!wInList.empty())
+							wInList.append(L",");
+
+						wInList.append(L"'");
+						wInList.append(EscapeSQLQueryValue((*sp_vWords)[i+j]));
+						wInList.append(L"'");
+					}
+				}
+
+				// cache uncached tracked terms
+				if (!wInList.empty())
+				{
+					wstring wQuery;
+					wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
+					wQuery.append(wTableSetPrefix);
+					wQuery.append(L"words where WoLgID = ");
+					wQuery.append(wLgID);
+					wQuery.append(L" AND WoTextLC in (");
+					wQuery.append(wInList);
+					wQuery.append(L")");
+
+					EnterCriticalSection(&CS_UseDBConn);
+					DoExecuteDirect(_T("1612isjdlfij"), wQuery);
+					while (tStmt.fetch_next())
+					{
+						wstring wLC = tStmt.field(1).as_string();
+						TermRecord rec(tStmt.field(2).as_string());
+						rec.wRomanization = tStmt.field(3).as_string();
+						rec.wTranslation = tStmt.field(4).as_string();
+						cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
+						cWords.remove(wLC);
+					}
+					tStmt.free_results();
+					LeaveCriticalSection(&CS_UseDBConn);
+				}
+				// at this point all terms in list that are tracked are cached
+
+				for (wstring& word : cWords)
+					cache->insert(unordered_map<wstring,TermRecord>::value_type(word, TermRecord(L"0")));
+
+				if (i == 0) // we're in the first loop, having cahced the first block of words
+				{
+					Helper_Notify_Thread_CachePageWords(pbHeadStartComplete, p_cv);
+				}
+
+				if (bShuttingDown)
+					return;
+			}
+		}
+	}
+	void Thread_CachePageWords2(LPSTREAM pDocStream, shared_ptr<vector<wstring>> sp_vWords, condition_variable& cv, mutex& m)//,
+							   //vector<shared_ptr<atomic_int>> vAInts)
+	{
+		if (!pDocStream || !sp_vWords)
+			return;
+
+		const int MAX_MYSQL_INLIST_LEN = 500;
+
+		IHTMLDocument2* pDoc = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
+		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
+		if (FAILED(hr) || !pDoc)
+			return;
+
+		for (int i = 0;; i += MAX_MYSQL_INLIST_LEN)
+		{
+			list<wstring> cWords;
+			wstring	wInList;
+
+			// create buffer of uncached terms
+			for (int j = 0; j < MAX_MYSQL_INLIST_LEN; ++j)
+			{
+				//int curCatalogued = *sp_aiWordsCatalogued; // take a snapshot to help logic
+
+				//if (i+j == curCatalogued) // we're done (likely) or need to wait for more words (unlikely)
+				{
+					// todo fix: this whole code block assumes totalwords > 0
+					// todo: handle case when there are 0 total words (by a timeout)
+					// wait until more words are catalogued or total is known
+					{
+						std::unique_lock<std::mutex> lk(m);
+						bool moveon = false;
+						while (!moveon)
+						{
+						//	moveon = cv.wait_for(lk, std::chrono::milliseconds(100), [i,j,sp_aiWordsCatalogued,sp_aiTotalWords]
+							//		{return (i+j < *sp_aiWordsCatalogued) || (*sp_aiTotalWords != 0);});
+						}
+					}
+
+					//if (*sp_aiTotalWords == 0) // we must have more words available
+						__noop;
+					//else if (i+j == *sp_aiTotalWords) // the one case we know for sure we're done
+						break;
+					//else // total must be known and i+j less, so continue on
+						__noop;
+				}
+
+				cache_it it = cache->find((*sp_vWords)[i+j]);
+				if (TermNotCached(it))
+				{
+				//	++count;
+					cWords.push_back((*sp_vWords)[i+j]);
+					if (!wInList.empty())
+						wInList.append(L",");
+
+					wInList.append(L"'");
+					wInList.append(EscapeSQLQueryValue((*sp_vWords)[i+j]));
+					wInList.append(L"'");
+				}
+				else
+				//	++count;
+				;
+			}
+
+			// cache uncached tracked terms
+			if (!wInList.empty())
+			{
+				wstring wQuery;
+				wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
+				wQuery.append(wTableSetPrefix);
+				wQuery.append(L"words where WoLgID = ");
+				wQuery.append(wLgID);
+				wQuery.append(L" AND WoTextLC in (");
+				wQuery.append(wInList);
+				wQuery.append(L")");
+
+				EnterCriticalSection(&CS_UseDBConn);
+				DoExecuteDirect(_T("1612isjdlfij"), wQuery);
+				while (tStmt.fetch_next())
+				{
+					wstring wLC = tStmt.field(1).as_string();
+					TermRecord rec(tStmt.field(2).as_string());
+					rec.wRomanization = tStmt.field(3).as_string();
+					rec.wTranslation = tStmt.field(4).as_string();
+					cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
+					cWords.remove(wLC);
+				}
+				tStmt.free_results();
+				LeaveCriticalSection(&CS_UseDBConn);
+			}
+			// at this point all terms in list that are tracked are cached
+
+			for (wstring& word : cWords)
+				cache->insert(unordered_map<wstring,TermRecord>::value_type(word, TermRecord(L"0")));
+
+			//(*sp_aiSingleWordsCached) = count;
+
+			if (bShuttingDown)
+				return;
+		}
+	}
+	void Thread_GetPageWords(LPSTREAM pDocStream, shared_ptr<vector<wstring>> pvWords)
+							 //shared_ptr<atomic_int> sp_aiWordsCatalogued,
+							 //shared_ptr<atomic_int> sp_aiTotalWords)
+	{
+		if (!pDocStream)
+			return;
+
+		IHTMLDocument2* pDoc = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
+		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
+		if (FAILED(hr) || !pDoc)
+			return;
+
+		IDOMTreeWalker* pDocTree = GetDocumentTree(pDoc); SmartCOMRelease scDocTree(pDocTree);
+		if (!pDocTree)
+			return;
+
+		IDispatch* pNextNodeDisp = nullptr;
+		IHTMLDOMNode* pNextNode = nullptr;
+		IHTMLElement* pElement = nullptr;
+		IHTMLDOMTextNode* pText = nullptr;
+		bool bAwaitElement = false;
+
+		// loop regex setup
+		wstring regPtn = L"[" + WordChars + L"]";
+		if (bWithSpaces)
+			regPtn.append(L"+");
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wregex_iterator rend;
+		
+		// this while loop manages reference counts manually
+		while(SUCCEEDED(pDocTree->nextNode(&pNextNodeDisp)) && pNextNodeDisp)
+		{
+			long lngType;
+			pNextNode = chaj::COM::GetAlternateInterface<IDispatch,IHTMLDOMNode>(pNextNodeDisp);
+			if (pNextNode)
+			{
+				hr = pNextNode->get_nodeType(&lngType);
+				if (SUCCEEDED(hr))
+				{
+					if (lngType == chaj::DOM::NODE_TYPE_ELEMENT)
+					{
+						bAwaitElement = false;
+						pElement = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLElement>(pNextNode);
+						if (pElement)
+						{
+							wstring wTag = chaj::DOM::GetTagFromElement(pElement);
+							if (wcsicmp(wTag.c_str(), L"script") == 0 || \
+								wcsicmp(wTag.c_str(), L"style") == 0 || \
+								wcsicmp(wTag.c_str(), L"textarea") == 0 || \
+								wcsicmp(wTag.c_str(), L"iframe") == 0 || \
+								wcsicmp(wTag.c_str(), L"noframe") == 0)
+							{
+								bAwaitElement = true;
+							}
+						}
+						pElement->Release();
+					}
+					else if (!bAwaitElement && lngType == chaj::DOM::NODE_TYPE_TEXT)
+					{
+						pText = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNextNode);
+						if (pText)
+						{
+							_bstr_t bText;
+							wstring wText;
+							pText->get_data(bText.GetAddress());
+							if (bText.length())
+								wText = bText;
+
+							if (!wText.empty())
+							{
+								wregex_iterator regit(wText.begin(), wText.end(), wrgx);
+								while (regit != rend)
+								{
+									pvWords->push_back(regit->str());
+									//(*sp_aiWordsCatalogued)++;
+									++regit;
+								}
+							}
+						}
+						pText->Release();
+					}
+				}
+			}
+			pNextNode->Release();
+			pNextNodeDisp->Release();
+			if (bShuttingDown)
+				break;
+		}
+		//(*sp_aiTotalWords) = (*sp_aiWordsCatalogued);
+	}
+	void GetPageWords(IHTMLDocument2* pDoc, vector<wstring>& vWords)
+	{
+		if (!pDoc)
+			return;
+
+		IDOMTreeWalker* pDocTree = GetDocumentTree(pDoc); SmartCOMRelease scDocTree(pDocTree);
+		if (!pDocTree)
+			return;
+
+		IDispatch* pNextNodeDisp = nullptr;
+		IHTMLDOMNode* pNextNode = nullptr;
+		IHTMLElement* pElement = nullptr;
+		IHTMLDOMTextNode* pText = nullptr;
+		bool bAwaitElement = false;
+		HRESULT hr;
+
+		// loop regex setup
+		wstring regPtn = L"[" + WordChars + L"]";
+		if (bWithSpaces)
+			regPtn.append(L"+");
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wregex_iterator rend;
+		
+		// this while loop manages reference counts manually
+		while(SUCCEEDED(pDocTree->nextNode(&pNextNodeDisp)) && pNextNodeDisp)
+		{
+			long lngType;
+			pNextNode = chaj::COM::GetAlternateInterface<IDispatch,IHTMLDOMNode>(pNextNodeDisp);
+			if (pNextNode)
+			{
+				hr = pNextNode->get_nodeType(&lngType);
+				if (SUCCEEDED(hr))
+				{
+					if (lngType == chaj::DOM::NODE_TYPE_ELEMENT)
+					{
+						bAwaitElement = false;
+						pElement = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLElement>(pNextNode);
+						if (pElement)
+						{
+							wstring wTag = chaj::DOM::GetTagFromElement(pElement);
+							if (wcsicmp(wTag.c_str(), L"script") == 0 || \
+								wcsicmp(wTag.c_str(), L"style") == 0 || \
+								wcsicmp(wTag.c_str(), L"textarea") == 0 || \
+								wcsicmp(wTag.c_str(), L"iframe") == 0 || \
+								wcsicmp(wTag.c_str(), L"noframe") == 0)
+							{
+								bAwaitElement = true;
+							}
+						}
+						pElement->Release();
+					}
+					else if (!bAwaitElement && lngType == chaj::DOM::NODE_TYPE_TEXT)
+					{
+						pText = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNextNode);
+						if (pText)
+						{
+							_bstr_t bText;
+							wstring wText;
+							pText->get_data(bText.GetAddress());
+							if (bText.length())
+								wText = bText;
+
+							if (!wText.empty())
+							{
+								wregex_iterator regit(wText.begin(), wText.end(), wrgx);
+								while (regit != rend)
+								{
+									vWords.push_back(regit->str());
+									++regit;
+								}
+							}
+						}
+						pText->Release();
+					}
+				}
+			}
+			pNextNode->Release();
+			pNextNodeDisp->Release();
+			if (bShuttingDown)
+				break;
+		}
+	}
+	IWebBrowser2* UnstreamBrowser_Helper__Thread_OnPageFullyLoaded(LPSTREAM pBrowserStream)
+	{
+		IWebBrowser2* pBrowser = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pBrowserStream, IID_IWebBrowser2, reinterpret_cast<LPVOID*>(&pBrowser));
+		if (FAILED(hr) || !pBrowser)
+			return nullptr;
+		else
+			return pBrowser;
+	}
+	bool StartWordCache_Helper__Thread_OnPageFullyLoaded(IHTMLDocument2* pDoc, shared_ptr<vector<wstring>>& sp_vWords, condition_variable& cv, bool& bHeadStartComplete)
+	{
+		LPSTREAM pDocStream = nullptr;
+		HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IHTMLDocument2, pDoc, &pDocStream);
+		if (SUCCEEDED(hr) && pDocStream)
+		{
+			cpThreads.push_back(new std::thread(&LwtBho::Thread_CachePageWords, this, pDocStream, sp_vWords, &cv, &bHeadStartComplete));
+			return true;
+		}
+		else
+			return false;
+	}
+	bool StartMWCache_Helper__Thread_OnPageFullyLoaded(IHTMLDocument2* pDoc, shared_ptr<vector<wstring>>& sp_vWords)
+	{
+		LPSTREAM pDocStream = nullptr;
+		HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IHTMLDocument2, pDoc, &pDocStream);
+		if (SUCCEEDED(hr) && pDocStream)
+		{
+			cpThreads.push_back(new std::thread(&LwtBho::Thread_CachePageMWTerms, this, pDocStream, sp_vWords));
+			return true;
+		}
+		else
+			return false;
+	}
+	bool StartPageHighlightThread_Helper__Thread_OnPageFullyLoaded(IHTMLDocument2* pDoc)
+	{
+		LPSTREAM pDocStream = nullptr;
+		HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IHTMLDocument2, pDoc, &pDocStream);
+		if (SUCCEEDED(hr) && pDocStream)
+		{
+			cpThreads.push_back(new std::thread(&LwtBho::Thread_HighlightPage, this, pDocStream));
+			return true;
+		}
+		else
+			return false;
+	}
+	void Thread_OnPageFullyLoaded(LPSTREAM pBrowserStream)
+	{
+		if (!pBrowserStream)
+			return;
+
+		IWebBrowser2* pBrowser = UnstreamBrowser_Helper__Thread_OnPageFullyLoaded(pBrowserStream); SmartCOMRelease scBrowser(pBrowser, true); // AddRef and schedule Release
+		if (!pBrowser)
+			return;
+
+		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
+		if (!pDoc)
+			return;
+
+		AppendCss(pDoc);
+		AppendHtmlBlocks(pDoc);
+		AppendJavascript(pDoc);
+
+		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc); SmartCOMRelease scSetupLink(pSetupLink);
+		assert(pSetupLink);
+		dhr(pSetupLink->click());
+
+		// mutex and conditional variable to signal a batch of cached words
+		std::mutex m;
+		std::condition_variable cv;
+		bool bHeadStartComplete = false;
+
+		vector<wstring> vWords;
+		GetPageWords(pDoc, vWords);
+
+		shared_ptr<vector<wstring>> sp_vWords = make_shared<vector<wstring>>(vWords);
+
+		// start threads
+		StartMWCache_Helper__Thread_OnPageFullyLoaded(pDoc, sp_vWords);
+		StartWordCache_Helper__Thread_OnPageFullyLoaded(pDoc, sp_vWords, cv, bHeadStartComplete);
+		
+		while (!bHeadStartComplete)
+		{
+			std:mutex n;
+			std::unique_lock<mutex> lk(n);
+			cv.wait(lk);
+			if (bShuttingDown)
+				return;
+		}
+
+		// start thread after above notification
+		StartPageHighlightThread_Helper__Thread_OnPageFullyLoaded(pDoc);
+	}
+	void OnPageFullyLoaded()
+	{
+		HRESULT hr;
+
+		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
+		if (!pDoc)
+			return;
+
+		AppendCss(pDoc);
+		AppendHtmlBlocks(pDoc);
+		AppendJavascript(pDoc);
+
+		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc); SmartCOMRelease scSetupLink(pSetupLink);
+		assert(pSetupLink);
+		dhr(pSetupLink->click());
+
+		// mutex and conditional variable to signal a batch of cached words
+		std::mutex m;
+		std::condition_variable cv;
+		bool bHeadStartComplete = false;
+
+		vector<wstring> vWords;
+		GetPageWords(pDoc, vWords);
+
+		shared_ptr<vector<wstring>> sp_vWords = make_shared<vector<wstring>>(vWords);
+
+		LPSTREAM pDocStream3 = nullptr;
+		hr = CoMarshalInterThreadInterfaceInStream(IID_IHTMLDocument2, pDoc, &pDocStream3);
+		if (SUCCEEDED(hr) && pDocStream3)
+			cpThreads.push_back(new std::thread(&LwtBho::Thread_CachePageMWTerms, this, pDocStream3, sp_vWords));
+
+		LPSTREAM pDocStream2 = nullptr;
+		hr = CoMarshalInterThreadInterfaceInStream(IID_IHTMLDocument2, pDoc, &pDocStream2);
+		if (SUCCEEDED(hr) && pDocStream2)
+			cpThreads.push_back(new std::thread(&LwtBho::Thread_CachePageWords, this, pDocStream2, sp_vWords, &cv, &bHeadStartComplete));
+		
+		while (!bHeadStartComplete)
+		{
+			std:mutex n;
+			std::unique_lock<mutex> lk(n);
+			cv.wait(lk);
+			if (bShuttingDown)
+				return;
+		}
+
+		LPSTREAM pDocStream4 = nullptr;
+		hr = CoMarshalInterThreadInterfaceInStream(IID_IHTMLDocument2, pDoc, &pDocStream4);
+		if (SUCCEEDED(hr) && pDocStream4)
+			cpThreads.push_back(new std::thread(&LwtBho::Thread_HighlightPage, this, pDocStream4));
+	}
+	void Thread_HighlightPage(LPSTREAM pDocStream)
+	{
+		if (!pDocStream)
+			return;
+
+		unordered_set<wstring> usetPageTerms; // used to track which terms have had an html hidden div record appended
+
+		IHTMLDocument2* pDoc = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
+		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
+		if (FAILED(hr) || !pDoc)
+			return;
+
+		IDOMTreeWalker* pDocTree = GetDocumentTree(pDoc); SmartCOMRelease scDocTree(pDocTree);
+		if (!pDocTree)
+			return;
+
+		IDispatch* pNextNodeDisp = nullptr;
+		IDispatch* pAfterTextDisp = nullptr;
+		IHTMLDOMNode* pNextNode = nullptr;
+		IHTMLElement* pElement = nullptr;
+		IHTMLDOMTextNode* pText = nullptr;
+		bool bAwaitElement = false;
+		unsigned int count = 0;
+		
+		// this while loop manages reference counts manually
+		while(SUCCEEDED(pDocTree->nextNode(&pNextNodeDisp)) && pNextNodeDisp)
+		{
+			long lngType;
+			pNextNode = chaj::COM::GetAlternateInterface<IDispatch,IHTMLDOMNode>(pNextNodeDisp);
+			if (pNextNode)
+			{
+				hr = pNextNode->get_nodeType(&lngType);
+				if (SUCCEEDED(hr))
+				{
+					if (lngType == chaj::DOM::NODE_TYPE_ELEMENT)
+					{
+						bAwaitElement = false;
+						pElement = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLElement>(pNextNode);
+						if (pElement)
+						{
+							wstring wTag = chaj::DOM::GetTagFromElement(pElement);
+							if (wcsicmp(wTag.c_str(), L"span") == 0)
+							{
+								if (!GetAttributeValue(pElement, L"lwtTerm").empty())
+									bAwaitElement = true;
+							}
+							else if (wcsicmp(wTag.c_str(), L"script") == 0 || \
+								wcsicmp(wTag.c_str(), L"style") == 0 || \
+								wcsicmp(wTag.c_str(), L"textarea") == 0 || \
+								wcsicmp(wTag.c_str(), L"iframe") == 0 || \
+								wcsicmp(wTag.c_str(), L"noframe") == 0)
+							{
+								bAwaitElement = true;
+							}
+						}
+						pElement->Release();
+					}
+					else if (!bAwaitElement && lngType == chaj::DOM::NODE_TYPE_TEXT)
+					{
+						dhr(pDocTree->nextNode(&pAfterTextDisp)); // grab the node that follows this text node as a bookmark
+						pText = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNextNode);
+						if (pText)
+						{
+							//ParseTextNode_AllAtOnce2(pText, pDoc, count, sp_aiSingleWordsCached, sp_aiMWTermsCached); // may insert several element nodes before bookmark
+							//ParseTextNode_AllAtOnce(pText, pDoc); // may insert several element nodes before bookmark
+							ParseTextNode_AllAtOnce3(pText, pDoc, usetPageTerms);
+						}
+						pText->Release();
+						if (pAfterTextDisp) // kinda hackish, but take whatever node now precedes the bookmark so loop will increment back to bookmark
+						{
+							pAfterTextDisp->Release();
+							hr = pDocTree->previousNode(&pAfterTextDisp);
+							if (SUCCEEDED(hr) && pAfterTextDisp)
+								pAfterTextDisp->Release();
+						}
+					}
+				}
+			}
+			pNextNode->Release();
+			pNextNodeDisp->Release();
+			if (bShuttingDown)
+				break;
+		}
+	}
+	void Thread_HighlightPage2(LPSTREAM pDocStream, vector<shared_ptr<atomic_int>> vAInts)
+	{
+		if (!pDocStream || vAInts.size() != 4)
+			return;
+
+		shared_ptr<atomic_int> sp_aiWordsCatalogued = vAInts[0];
+		shared_ptr<atomic_int> sp_aiTotalWords = vAInts[1];
+		shared_ptr<atomic_int> sp_aiSingleWordsCached = vAInts[2];
+		shared_ptr<atomic_int> sp_aiMWTermsCached = vAInts[3];
+
+		IHTMLDocument2* pDoc = nullptr;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
+		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
+		if (FAILED(hr) || !pDoc)
+			return;
+
+		IDOMTreeWalker* pDocTree = GetDocumentTree(pDoc); SmartCOMRelease scDocTree(pDocTree);
+		if (!pDocTree)
+			return;
+
+		IDispatch* pNextNodeDisp = nullptr;
+		IDispatch* pAfterTextDisp = nullptr;
+		IHTMLDOMNode* pNextNode = nullptr;
+		IHTMLElement* pElement = nullptr;
+		IHTMLDOMTextNode* pText = nullptr;
+		bool bAwaitElement = false;
+		unsigned int count = 0;
+		
+		// this while loop manages reference counts manually
+		while(SUCCEEDED(pDocTree->nextNode(&pNextNodeDisp)) && pNextNodeDisp)
+		{
+			long lngType;
+			pNextNode = chaj::COM::GetAlternateInterface<IDispatch,IHTMLDOMNode>(pNextNodeDisp);
+			if (pNextNode)
+			{
+				hr = pNextNode->get_nodeType(&lngType);
+				if (SUCCEEDED(hr))
+				{
+					if (lngType == chaj::DOM::NODE_TYPE_ELEMENT)
+					{
+						bAwaitElement = false;
+						pElement = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLElement>(pNextNode);
+						if (pElement)
+						{
+							wstring wTag = chaj::DOM::GetTagFromElement(pElement);
+							if (wcsicmp(wTag.c_str(), L"span") == 0)
+							{
+								if (!GetAttributeValue(pElement, L"lwtTerm").empty())
+									bAwaitElement = true;
+							}
+							else if (wcsicmp(wTag.c_str(), L"script") == 0 || \
+								wcsicmp(wTag.c_str(), L"style") == 0 || \
+								wcsicmp(wTag.c_str(), L"textarea") == 0 || \
+								wcsicmp(wTag.c_str(), L"iframe") == 0 || \
+								wcsicmp(wTag.c_str(), L"noframe") == 0)
+							{
+								bAwaitElement = true;
+							}
+						}
+						pElement->Release();
+					}
+					else if (!bAwaitElement && lngType == chaj::DOM::NODE_TYPE_TEXT)
+					{
+						dhr(pDocTree->nextNode(&pAfterTextDisp)); // grab the node that follows this text node as a bookmark
+						pText = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNextNode);
+						if (pText)
+						{
+							ParseTextNode_AllAtOnce2(pText, pDoc, count, sp_aiSingleWordsCached, sp_aiMWTermsCached); // may insert several element nodes before bookmark
+							//ParseTextNode_AllAtOnce(pText, pDoc); // may insert several element nodes before bookmark
+						}
+						pText->Release();
+						if (pAfterTextDisp) // kinda hackish, but take whatever node now precedes the bookmark so loop will increment back to bookmark
+						{
+							pAfterTextDisp->Release();
+							hr = pDocTree->previousNode(&pAfterTextDisp);
+							if (SUCCEEDED(hr) && pAfterTextDisp)
+								pAfterTextDisp->Release();
+						}
+					}
+				}
+			}
+			pNextNode->Release();
+			pNextNodeDisp->Release();
+			if (bShuttingDown)
+				break;
+		}
+	}
+	void OnPageFullyLoaded1(LPSTREAM pBrowserStream)
+	{
+		if (!pBrowserStream)
+			return;
+
 		IWebBrowser2* t_pBrowser = nullptr;
 		HRESULT hr = CoGetInterfaceAndReleaseStream(pBrowserStream, IID_IWebBrowser2, reinterpret_cast<LPVOID*>(&t_pBrowser));
-		SmartCOMRelease t_scBrowser(t_pBrowser, true);
-		// hack : I'm not really sure if I should both Add and Release ref in this thread, or add in the caller and release in
-		// this callee. I generally guess that the streaming doesn't change ref counts, but if I add in caller and then cannot
-		// destream, ref counts would be off
+		SmartCOMRelease t_scBrowser(t_pBrowser, true); // AddRef and schedule Release
 		if (FAILED(hr) || !t_pBrowser)
 			return;
 
 		IHTMLDocument2* pDoc = GetDocumentFromBrowser(t_pBrowser); SmartCOMRelease scDoc(pDoc);
-		SetDocTreeWalker(pDoc);
-		ParsePage(pDoc);
+		if (!pDoc)
+			return;
+
+		AppendCss(pDoc);
+		AppendHtmlBlocks(pDoc);
+		AppendJavascript(pDoc);
+
+		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc); SmartCOMRelease scSetupLink(pSetupLink);
+		assert(pSetupLink);
+		dhr(pSetupLink->click());
+		
+
+		IDOMTreeWalker* pDocTree = GetDocumentTree(pDoc); SmartCOMRelease scDocTree(pDocTree);
+		if (!pDocTree)
+			return;
+
+		IDispatch* pNextNodeDisp = nullptr;
+		IDispatch* pAfterTextDisp = nullptr;
+		IHTMLDOMNode* pNextNode = nullptr;
+		IHTMLElement* pElement = nullptr;
+		IHTMLDOMTextNode* pText = nullptr;
+		bool bAwaitElement = false;
+		
+		// this while loop manages reference counts manually
+		while(SUCCEEDED(pDocTree->nextNode(&pNextNodeDisp)) && pNextNodeDisp)
+		{
+			long lngType;
+			pNextNode = chaj::COM::GetAlternateInterface<IDispatch,IHTMLDOMNode>(pNextNodeDisp);
+			if (pNextNode)
+			{
+				hr = pNextNode->get_nodeType(&lngType);
+				if (SUCCEEDED(hr))
+				{
+					if (lngType == chaj::DOM::NODE_TYPE_ELEMENT)
+					{
+						bAwaitElement = false;
+						pElement = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLElement>(pNextNode);
+						if (pElement)
+						{
+							wstring wTag = chaj::DOM::GetTagFromElement(pElement);
+							if (wcsicmp(wTag.c_str(), L"span") == 0)
+							{
+								if (!GetAttributeValue(pElement, L"lwtTerm").empty())
+									bAwaitElement = true;
+							}
+							else if (wcsicmp(wTag.c_str(), L"script") == 0 || \
+								wcsicmp(wTag.c_str(), L"style") == 0 || \
+								wcsicmp(wTag.c_str(), L"textarea") == 0 || \
+								wcsicmp(wTag.c_str(), L"iframe") == 0 || \
+								wcsicmp(wTag.c_str(), L"noframe") == 0)
+							{
+								bAwaitElement = true;
+							}
+						}
+						pElement->Release();
+					}
+					else if (!bAwaitElement && lngType == chaj::DOM::NODE_TYPE_TEXT)
+					{
+						dhr(pDocTree->nextNode(&pAfterTextDisp)); // grab the node that follows this text node as a bookmark
+						pText = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNextNode);
+						if (pText)
+						{
+							ParseTextNode_AllAtOnce(pText, pDoc); // may insert several element nodes before bookmark
+						}
+						pText->Release();
+						if (pAfterTextDisp) // kinda hackish, but take whatever node now precedes the bookmark so loop will increment back to bookmark
+						{
+							pAfterTextDisp->Release();
+							hr = pDocTree->previousNode(&pAfterTextDisp);
+							if (SUCCEEDED(hr) && pAfterTextDisp)
+								pAfterTextDisp->Release();
+						}
+					}
+				}
+			}
+			pNextNode->Release();
+			pNextNodeDisp->Release();
+			if (bShuttingDown)
+				break;
+		}
 	}
 	static void DeleteHandles()
 	{
@@ -4129,7 +5159,7 @@ public:
 		if (pNI)
 			pNI->Release();
 
-		IHTMLElement* pBody = GetBodyAsElementFromDoc(pDoc);
+		IHTMLElement* pBody = GetBodyFromDoc(pDoc);
 		DOMIteratorFilter filter(&FilterNodes_LWTTerm);
 		pNI = GetNodeIteratorWithFilter(pDoc, pBody, dynamic_cast<IDispatch*>(&filter));
 		pBody->Release();
@@ -4251,13 +5281,11 @@ public:
 	}
 	HRESULT SetEventReturnFalse(IHTMLEventObj* pEvent)
 	{
-		TRACE(L"Calling SetEventReturnFalse\n");
 		VARIANT varRetVal; VariantInit(&varRetVal); varRetVal.vt = VT_BOOL; varRetVal.boolVal = VARIANT_FALSE;
 		HRESULT hr = pEvent->put_returnValue(varRetVal);
 		VariantClear(&varRetVal);
 		if (FAILED(hr))
 			TRACE(L"Encountered unexpected hresult in SetEventReturnFalse.\n");
-		TRACE(L"Leaving SetEventReturnFalse\n");
 		return hr;
 	}
 	inline bool TermInCache(const wstring& wTerm)
@@ -4655,8 +5683,6 @@ public:
 
 	IHTMLEventObj* GetEventFromDocument(IHTMLDocument2* pDoc)
 	{
-		TRACE(L"%s", L"Calling GetEventFromDocument\n");
-
 		IHTMLWindow2* window = NULL;
 		HRESULT hr = pDoc->get_parentWindow(&window);
 		if (FAILED(hr))
@@ -4678,13 +5704,10 @@ public:
 			return nullptr;
 		}
 
-		TRACE(L"%s", L"Leaving GetEventFromDocument\n");
 		return event;
 	}
 	IHTMLElement* GetClickedElementFromEvent(IHTMLEventObj* pEvent, IHTMLDocument2* pDoc)
 	{
-		TRACE(L"%s", L"Entering GetClickedElementFromEvent\n");
-
 		long x, y;
 		pEvent->get_clientX(&x);
 		pEvent->get_clientY(&y);
@@ -4698,38 +5721,38 @@ public:
 			return nullptr;
 		}
 
-		TRACE(L"%s", L"Leaving GetClickedElementFromEvent\n");
 		return pElement;
+	}
+	void OnDocumentComplete(DISPPARAMS* pDispParams)
+	{
+		if (pDispParams->cArgs >= 2 && pDispParams->rgvarg[1].vt == VT_DISPATCH)
+		{
+			IDispatch* pCur = pDispParams->rgvarg[1].pdispVal;
+			if (pCur == pDispBrowser)
+			{
+				LPSTREAM pBrowserStream = nullptr;
+				HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IWebBrowser2, this->pBrowser, &pBrowserStream);
+				if (SUCCEEDED(hr) && pBrowserStream)
+					cpThreads.push_back(new std::thread(&LwtBho::Thread_OnPageFullyLoaded, this, pBrowserStream));
+				//OnPageFullyLoaded();
+			}
+		}
 	}
 	HRESULT _stdcall Invoke(DISPID dispidMember, REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pvarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr)
 	{
 		if (dispidMember == DISPID_HTMLDOCUMENTEVENTS_ONCLICK)
 			HandleClick();
+		else if (dispidMember == DISPID_BEFORENAVIGATE2)
+			int i = 0;
 		else if (dispidMember == DISPID_HTMLDOCUMENTEVENTS_ONCONTEXTMENU)
 			HandleRightClick();
-		//if (dispidMember == DISP_UPDATETERMINFO)
+		else if (dispidMember == DISPID_DOCUMENTCOMPLETE)
+			OnDocumentComplete(pDispParams);
+		return S_OK;
 		//if (dispidMember == DISPID_DOWNLOADBEGIN)
 		//if (dispidMember == DISPID_DOWNLOADCOMPLETE)
 		//if (dispidMember == DISPID_NAVIGATECOMPLETE2)
 		//if (dispidMember == DISPID_ONQUIT)
-		//if (dispidMember == DISPID_BEFORENAVIGATE2)
-		else if (dispidMember == DISPID_DOCUMENTCOMPLETE)
-		{
-			if (pDispParams->cArgs >= 2 && pDispParams->rgvarg[1].vt == VT_DISPATCH)
-			{
-				IDispatch* pCur = pDispParams->rgvarg[1].pdispVal;
-				if (pCur == pDispBrowser)
-				{
-					LPSTREAM pBrowserStream = nullptr;
-					HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IWebBrowser2, pBrowser, &pBrowserStream);
-					if (SUCCEEDED(hr) && pBrowserStream)
-					{
-						cpThreads.push_back(new std::thread(&LwtBho::OnPageFullyLoaded, this, pBrowserStream));
-					}
-				}
-			}
-		}
-		return S_OK;
 	}
 
 /* THIS IS POTENTIAL CODE FOR AFTER DOCUMENT COMPLETE */
@@ -4757,7 +5780,7 @@ private:
 	void LoadJavascriptFile();
 
 	/* member variables */
-	unordered_set<wstring> usetPageMWList;
+	unordered_set<wstring> usetCacheMWFragments;
 
 	// interfaces
 	IUnknown* pSite;
@@ -4798,6 +5821,8 @@ private:
 	wregex_iterator rend;
 	wregex wWordSansBookmarksWrgx;
 	wregex TagNotTagWrgx;
+	bool bShuttingDown;
+	CRITICAL_SECTION CS_UseDBConn;
 };
 
 inline void LwtBho::GetCurrentTableSetPrefix()
@@ -4828,6 +5853,8 @@ inline LwtBho::LwtBho()
 #ifdef _DEBUG
 	mb("Here's your chance to attach debugger...");
 #endif
+	bShuttingDown = false;
+
 	pSite = nullptr;
 	pBrowser = nullptr;
 	pCP = nullptr;
@@ -4854,6 +5881,9 @@ inline LwtBho::LwtBho()
 	LoadCssFile();
 	assert(this->wCss.size());
 
+	if (!InitializeCriticalSectionAndSpinCount(&CS_UseDBConn, 0x00000400))
+		TRACE(L"Cound not initialize critical section CS_UseDBConn in LwtBho. 5110suhdg\n"); // hack: this needs to be addressed, but I didn't want to throw an exception from the constructor; research this
+
 	InitializeWregexes();
 
 	pFilter = new chaj::DOM::DOMIteratorFilter(&FilterNodes_LWTTerm);
@@ -4873,19 +5903,25 @@ inline LwtBho::LwtBho()
 
 inline LwtBho::~LwtBho()
 {
+	bShuttingDown = true;
+
+	while (cpThreads.size())
+	{
+		if (cpThreads.back()->joinable())
+			cpThreads.back()->join();
+		delete cpThreads.back();
+		cpThreads.pop_back();
+	}
+
+	// all other threads have exited, safe to delete critical sections
+	DeleteCriticalSection(&CS_UseDBConn);
+
 	if (pFilter != nullptr)
 		delete pFilter;
 
 	for (auto cacheEntry : cacheMap)
 	{
 		delete cacheEntry.second;
-	}
-
-	for (auto pThread : cpThreads)
-	{
-		if (pThread->joinable())
-			pThread->join();
-		delete pThread;
 	}
 }
 

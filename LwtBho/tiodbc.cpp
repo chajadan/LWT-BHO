@@ -574,7 +574,7 @@ namespace tiodbc
 	// Execute direct a query
 	bool statement::execute_direct(connection & _conn, const _tstring & _query)
 	{	
-		TRACE(L"%s", _query.c_str());
+		TRACE(L"%s\n", _query.c_str());
 		RETCODE rc;
 
 		// Close previous

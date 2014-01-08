@@ -90,6 +90,8 @@
   <ItemGroup>
     <ClCompile Include="chajDOM.cpp" />
     <ClCompile Include="chajUtil.cpp" />
+    <ClCompile Include="Chunc.cpp" />
+    <ClCompile Include="Chunc_CachePageWords.cpp" />
     <ClCompile Include="LwtBho.cpp" />
     <ClCompile Include="tiodbc.cpp" />
     <ClCompile Include="HTMLLinguisticAnnotator.cpp" />
@@ -104,6 +106,10 @@
   <ItemGroup>
     <ClInclude Include="chajDOM.h" />
     <ClInclude Include="chajUtil.h" />
+    <ClInclude Include="Chunc.h" />
+    <ClInclude Include="ChuncException.h" />
+    <ClInclude Include="ChuncVar.h" />
+    <ClInclude Include="Chunc_CachePageWords.h" />
     <ClInclude Include="Resource\resource.h" />
     <ClInclude Include="tiodbc.hpp" />
     <ClInclude Include="HTMLLinguisticAnnotator.h" />

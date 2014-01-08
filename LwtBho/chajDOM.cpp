@@ -2,6 +2,8 @@
 #include "chajUtil.h"
 #include "comip.h"
 
+using namespace chaj::COM;
+
 namespace chaj
 {
 	LONG gref=0;
@@ -14,6 +16,11 @@ namespace chaj
 
 		extern const long SHOW_ALL = 0xffffffff;
 		extern const long SHOW_ELEMENT = 1;
+		extern const long SHOW_ATTRIBUTE = 2;
+		extern const long SHOW_TEXT = 4;
+
+		extern const long NODE_TYPE_ELEMENT = 1;
+		extern const long NODE_TYPE_TEXT = 3;
 	}
 }
 
@@ -82,13 +89,48 @@ HRESULT chaj::DOM::SetElementInnerText(IHTMLElement* pElement, const std::wstrin
 	SysFreeString(bstrOut);
 	return hr;
 }
+IHTMLElement* chaj::DOM::CreateElement(IHTMLDocument2* pDoc, const std::wstring& tag)
+{
+	IHTMLElement* pElement = nullptr;
+	BSTR bstrTag = SysAllocString(tag.c_str());
+	pDoc->createElement(bstrTag, &pElement);
+	SysFreeString(bstrTag);
+	return pElement;
+}
+HRESULT chaj::DOM::SetElementOuterHTML(IHTMLElement* pElement, const std::wstring& wstrOuterHTML)
+{
+	BSTR bstrOut = SysAllocString(wstrOuterHTML.c_str());
+	HRESULT hr = pElement->put_outerHTML(bstrOut);
+	SysFreeString(bstrOut);
+	return hr;
+}
 IHTMLElement* chaj::DOM::GetHTMLElementFromDispatch(IDispatch* pDispElement)
 {
 	IHTMLElement* res = NULL;
 	pDispElement->QueryInterface(IID_IHTMLElement, (void**)&res);
 	return res;
 }
+IHTMLDOMTextNode* chaj::DOM::SplitTextNode(IHTMLDOMTextNode* pTextNode, long offset)
+{
+	IHTMLDOMNode* pNode = nullptr;
 
+	HRESULT hr = pTextNode->splitText(offset, &pNode); SmartCOMRelease scNode(pNode);
+	if (SUCCEEDED(hr) && pNode)
+		return chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNode); // requestor must Release
+	else
+		return nullptr;
+}
+std::wstring chaj::DOM::GetTagFromElement(IHTMLElement* pElement)
+{
+	_bstr_t bstrTag;
+	std::wstring wTag(L"");
+
+	HRESULT hr = pElement->get_tagName(bstrTag.GetAddress());
+	if (SUCCEEDED(hr) && bstrTag.length())
+		wTag = bstrTag;
+
+	return wTag;
+}
 IDOMTreeWalker* chaj::DOM::GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, long (*FilterFunc)(IDispatch*), long lShow)
 {
 	chaj::DOM::DOMIteratorFilter filter(FilterFunc);
@@ -134,7 +176,7 @@ IDocumentTraversal* chaj::DOM::GetDocTravFromDoc(IHTMLDocument2* pDoc)
 IHTMLBodyElement* chaj::DOM::GetBodyElementFromDoc(IHTMLDocument2* pDoc)
 {
 	IHTMLBodyElement* res = nullptr;
-	IHTMLElement* pBody = GetBodyAsElementFromDoc(pDoc);
+	IHTMLElement* pBody = GetBodyFromDoc(pDoc);
 	if (pBody)
 	{
 		pBody->QueryInterface(IID_IHTMLBodyElement, reinterpret_cast<void**>(&res));
@@ -142,7 +184,7 @@ IHTMLBodyElement* chaj::DOM::GetBodyElementFromDoc(IHTMLDocument2* pDoc)
 	}
 	return res;
 }
-IHTMLElement* chaj::DOM::GetBodyAsElementFromDoc(IHTMLDocument2* pDoc)
+IHTMLElement* chaj::DOM::GetBodyFromDoc(IHTMLDocument2* pDoc)
 {
 	IHTMLElement* res = nullptr;
 	pDoc->get_body(&res);
@@ -249,7 +291,7 @@ std::wstring chaj::DOM::GetElementClass(IHTMLElement* pElement)
 	}
 	return out;
 }
-IHTMLElement* chaj::DOM::GetHeadAsElementFromDoc(IHTMLDocument2* pDoc)
+IHTMLElement* chaj::DOM::GetHeadFromDoc(IHTMLDocument2* pDoc)
 {
 	if (!pDoc)
 		return nullptr;
@@ -334,7 +376,7 @@ IHTMLDocument2* chaj::DOM::GetDocumentFromBrowser(IWebBrowser2* pBrowser)
 	hr = pDisp->QueryInterface(IID_IHTMLDocument2, reinterpret_cast<void**>(&pDoc)); // user-Released
 	if (FAILED(hr) || !pDoc)
 	{
-		TRACE(L"err: 4654ihsf");
+		TRACE(L"err: 4654ihsf\n");
 		return nullptr;
 	}
 

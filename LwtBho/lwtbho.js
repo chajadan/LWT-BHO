@@ -5,7 +5,14 @@ function lwtSetup()
 	window.lwtSettings = document.getElementById('lwtSettings');
 	lwtSettings.style.height = '100px';
 	window.onscroll = moveInfoOnScroll;
-	document.attachEvent('onkeydown', lwtkeypress);
+	if (typeof(document.addEventListener) !== 'undefined' && typeof(document.addEventListener) === 'function')
+	{
+		document.addEventListener('onkeydown', lwtkeypress, false);
+	}
+	else
+	{
+		alert('You should upgrade your version of Internet Explorer. LwtBho will not see key presses.');
+	}
 	window.popupInfo = document.getElementById('lwtPopupInfo');
 	window.termInfo = document.getElementById('lwtterminfo');
 	window.lwtBhoCommand = document.getElementById('lwtBhoCommand');

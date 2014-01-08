@@ -17,15 +17,36 @@ namespace chaj
 
 		extern const long SHOW_ALL;
 		extern const long SHOW_ELEMENT;
+
+		extern const long NODE_TYPE_ELEMENT;
+		extern const long NODE_TYPE_TEXT;
+		extern const long SHOW_ATTRIBUTE;
+		extern const long SHOW_TEXT;
+
+		IHTMLDOMTextNode* SplitTextNode(IHTMLDOMTextNode* pTextNode, long offset);
 		
 		std::wstring GetElementClass(IHTMLElement* pElement);
 		HRESULT SetElementClass(IHTMLElement* pElement, const std::wstring& wstrNewClass);
 		IHTMLElement* GetElementFromId(const std::wstring& wstrId, IHTMLDocument2* pDoc);
+
+		IHTMLElement* CreateElement(IHTMLDocument2* pDoc, const std::wstring& tag);
+		IHTMLElement* GetBodyFromDoc(IHTMLDocument2* pDoc);
+		IHTMLBodyElement* GetBodyElementFromDoc(IHTMLDocument2* pDoc);
+		IHTMLTxtRange* GetBodyTxtRangeFromDoc(IHTMLDocument2* pDoc);
 		IHTMLElementCollection* GetAllElementsFromDoc(IHTMLDocument2* pDoc);
-		IHTMLElement* GetHeadAsElementFromDoc(IHTMLDocument2* pDoc);
+		IHTMLElement* GetHeadFromDoc(IHTMLDocument2* pDoc);
 		IDocumentTraversal* GetDocTravFromDoc(IHTMLDocument2* pDoc);
 
 		IHTMLDocument2* GetDocumentFromBrowser(IWebBrowser2* pBrowser);
+
+		std::wstring GetTagFromElement(IHTMLElement* pElement);
+		std::wstring GetAttributeValue(IHTMLElement* pElement, const std::wstring& wstrAttribute, long lFlags = 0);
+		HRESULT SetAttributeValue(IHTMLElement* pElement, const std::wstring& wstrAttribute, const std::wstring& wstrAttValue, long lFlags = 0);
+		HRESULT SetElementInnerText(IHTMLElement* pElement, const std::wstring& wstrInnerText);
+		HRESULT SetElementOuterHTML(IHTMLElement* pElement, const std::wstring& wstrOuterHTML);
+
+
+		IHTMLElement* GetHTMLElementFromDispatch(IDispatch* pDispElement);
 
 		IDOMTreeWalker* GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* pFilter, long lShow = SHOW_ALL);
 		IDOMTreeWalker* GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, long (*FilterFunc)(IDispatch*), long lShow = SHOW_ALL);
@@ -103,18 +124,6 @@ namespace chaj
 			long ref;
 			long (*ff)(IDispatch*);
 		};
-
-		//CIC /* {C}ommon {I}nterface {C}hains */
-		IHTMLElement* GetBodyAsElementFromDoc(IHTMLDocument2* pDoc);
-		IHTMLBodyElement* GetBodyElementFromDoc(IHTMLDocument2* pDoc);
-		IHTMLTxtRange* GetBodyTxtRangeFromDoc(IHTMLDocument2* pDoc);
-
-		std::wstring GetAttributeValue(IHTMLElement* pElement, const std::wstring& wstrAttribute, long lFlags = 0);
-		HRESULT SetAttributeValue(IHTMLElement* pElement, const std::wstring& wstrAttribute, const std::wstring& wstrAttValue, long lFlags = 0);
-		HRESULT SetElementInnerText(IHTMLElement* pElement, const std::wstring& wstrInnerText);
-
-
-		IHTMLElement* GetHTMLElementFromDispatch(IDispatch* pDispElement);
 	}
 }
 
