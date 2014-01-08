@@ -4922,12 +4922,13 @@ inline LwtBho::~LwtBho()
 {
 	bShuttingDown = true;
 
-	while (cpThreads.size())
+	// wait for all threads to shut down
+	// thread is not deleted as this was causing issues for unknown reasons (would need troubleshooting)
+	// LwtBho destructor will free all objects soon enough anyway
+	for (unsigned int i = 0; i < cpThreads.size(); ++i)
 	{
-		if (cpThreads.back()->joinable())
-			cpThreads.back()->join();
-		delete cpThreads.back();
-		cpThreads.pop_back();
+		if (cpThreads[i]->joinable())
+			cpThreads[i]->join();
 	}
 
 	// all other threads have exited, safe to delete critical sections
