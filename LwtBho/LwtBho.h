@@ -1934,12 +1934,12 @@ public:
 		{
 			if (pHDEv != NULL)
 			{
-				pHDEv->Unadvise(dwCookie2);
+				pHDEv->Unadvise(Cookie_pHDev);
 				pHDEv->Release();
 			}
 		
 			pHDEv = pHDEv2;
-			hr = pHDEv->Advise(reinterpret_cast<IDispatch*>(this), &dwCookie2);
+			hr = pHDEv->Advise(reinterpret_cast<IDispatch*>(this), &Cookie_pHDev);
 		}
 		else
 			pHDEv2->Release();
@@ -1964,6 +1964,44 @@ public:
 		if (bstrBodyContent.length())
 			wBody = to_wstring(bstrBodyContent.GetBSTR());
 
+	}
+	void ReceiveEvents(IHTMLDocument2* pDoc)
+	{
+		if (pDoc == nullptr)
+			return;
+		
+		IConnectionPointContainer* aCPC;
+		HRESULT hr = pDoc->QueryInterface(IID_IConnectionPointContainer, (void**)&aCPC);
+		if (FAILED(hr))
+		{
+			mb(_T("FindDocCPC fail"), _T("260suhdhf"));
+			return;
+		}
+
+		IConnectionPoint* pHDEv2;
+		hr = aCPC->FindConnectionPoint(DIID_HTMLDocumentEvents, &pHDEv2);
+		aCPC->Release();
+		if (FAILED(hr))
+		{
+			mb(_T("Could not find a place to register a click listener"), _T("267sezhdu -- FindHDEv fail"));
+			return;
+		}
+
+		if (pHDEv != pHDEv2)
+		{
+			if (pHDEv != NULL)
+			{
+				pHDEv->Unadvise(Cookie_pHDev);
+				pHDEv->Release();
+			}
+		
+			pHDEv = pHDEv2;
+			hr = pHDEv->Advise(reinterpret_cast<IDispatch*>(this), &Cookie_pHDev);
+		}
+		else
+			pHDEv2->Release();
+		if (FAILED(hr))
+			mb("Error. Will not perceive mouse clicks on this page. Will try to annotate anyway.", "1000duwksm");
 	}
 	void PSTS_BookmarkLevel(TokenStruct& tokens, const wstring& in)
 	{
@@ -3791,8 +3829,8 @@ public:
 						pText->Release();
 					}
 				}
+				pNextNode->Release();
 			}
-			pNextNode->Release();
 			pNextNodeDisp->Release();
 			if (bShuttingDown)
 				break;
@@ -3856,6 +3894,9 @@ public:
 		if (!pDoc)
 			return;
 
+		//wstring wBody;
+		//IHTMLElement* pBody = GetBodyFromDoc(pDoc);
+		//GetBodyContent(wBody, pBody, pDoc);
 		AppendCss(pDoc);
 		AppendHtmlBlocks(pDoc);
 		AppendJavascript(pDoc);
@@ -4747,11 +4788,12 @@ public:
 			IDispatch* pCur = pDispParams->rgvarg[1].pdispVal;
 			if (pCur == pDispBrowser)
 			{
+				IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
+				ReceiveEvents(pDoc);
 				LPSTREAM pBrowserStream = nullptr;
 				HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IWebBrowser2, this->pBrowser, &pBrowserStream);
 				if (SUCCEEDED(hr) && pBrowserStream)
 					cpThreads.push_back(new std::thread(&LwtBho::Thread_OnPageFullyLoaded, this, pBrowserStream));
-				//OnPageFullyLoaded();
 			}
 		}
 	}
@@ -4811,7 +4853,7 @@ private:
 	chaj::DOM::DOMIteratorFilter* pFilter;
 	chaj::DOM::DOMIteratorFilter* pFullFilter;
 	HWND hBrowser;
-	DWORD dwCookie, dwCookie2;
+	DWORD dwCookie, Cookie_pHDev;
 	BOOL bDocumentCompleted;
 	long ref;
 	mysqlpp::Connection conn;
@@ -4883,7 +4925,7 @@ inline LwtBho::LwtBho()
 
 	hBrowser = NULL;
 	dwCookie = NULL;
-	dwCookie2 = NULL;
+	Cookie_pHDev = NULL;
 	bDocumentCompleted = false;
 	ref = 0;
 	wLgID = L"";
