@@ -54,13 +54,11 @@ public:
 	}
 	unsigned int insert(wstring wEntry)
 	{
-		unsigned int uNewId = -1;
 		TermRecord rec(L"-1");
 		std::unordered_map<std::wstring,TermRecord>::value_type newEntry(wEntry, rec);
 		EnterCriticalSection(&CS_AddCacheEntry);
 		newEntry.second.uIdent = _cur++;
 		_cache.insert(newEntry);
-		uNewId = _cur;		// required that _cur not be altered by other threads
 #ifdef _DEBUG
 			cache_it it = _cache.find(newEntry.first);
 			assert(it != _cache.end());

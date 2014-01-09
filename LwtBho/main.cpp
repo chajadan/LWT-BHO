@@ -135,6 +135,8 @@ HRESULT __stdcall DllUnregisterServer()
 		return S_OK;
 }
 
+#pragma warning( push )
+#pragma warning( disable : 4100 )
 extern "C" BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
 	hInstance = hinstDLL;
@@ -154,3 +156,4 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvRe
 		}
 	}
 }
+#pragma warning ( pop )

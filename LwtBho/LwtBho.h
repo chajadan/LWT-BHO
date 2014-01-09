@@ -37,7 +37,6 @@
 #include "tiodbc.hpp"
 #include "chajUtil.h"
 #include "chajDOM.h"
-#include "Chunc_CachePageWords.h"
 using namespace mysqlpp;
 using namespace std;
 using namespace chaj;
@@ -99,6 +98,8 @@ public:
 	ULONG STDMETHODCALLTYPE Release() {int tmp=InterlockedDecrement(&ref); if (tmp==0) delete this; InterlockedDecrement(&gref); return tmp;}
 
 	HRESULT STDMETHODCALLTYPE GetTypeInfoCount(unsigned int FAR* pctinfo) {*pctinfo=1; return NOERROR;}
+#pragma warning( push )
+#pragma warning( disable : 4100 )
 	HRESULT STDMETHODCALLTYPE GetTypeInfo(unsigned int iTInfo, LCID lcid, ITypeInfo FAR* FAR*  ppTInfo)
 	{
 		return NOERROR;
@@ -107,6 +108,7 @@ public:
 	{
 		return NOERROR;
 	}
+#pragma warning( pop )
 
 private:
 	void LoadCssFile()
@@ -179,7 +181,7 @@ private:
 			if (IsMultiwordTerm(wTerm))
 			{
 				UpdateCacheMWFragments(wTerm);
-				AddNewMWSpans(wTerm, wNewStatus, pDoc);
+				AddNewMWSpans(wTerm, pDoc);
 			}
 			else
 				UpdatePageSpans(pDoc, wTerm, wNewStatus);
@@ -193,7 +195,7 @@ private:
 				mb(L"Unable to add term. This is a database related issue. Error code: 325nijok", wTerm);
 		}
 	}
-	void AddNewMWSpans(const wstring& wTerm, const wstring& wNewStatus, IHTMLDocument2* pDoc)
+	void AddNewMWSpans(const wstring& wTerm, IHTMLDocument2* pDoc)
 	{
 		if (!wTerm.size())
 			return;
@@ -202,7 +204,6 @@ private:
 
 		if (bWithSpaces)
 		{
-			int pos = -1; //offset to jive with do loop
 			wchar_t* wcsTerm = new wchar_t[wTerm.size() + 1];
 			wcscpy(wcsTerm, wTerm.c_str());
 			wchar_t* pwc = wcstok(wcsTerm, L" ");
@@ -460,15 +461,6 @@ private:
 		AlterCacheItemStatus(wTerm, wNewStatus);
 		UpdatePageSpans(pDoc, wTerm, wNewStatus);
 	}
-	void  UpdatePageSpans2(IHTMLDocument2* pDoc, const wstring& wTerm, const wstring& wNewStatus)
-	{
-		IDispatch* pDispNode = NULL;
-		pNI->nextNode(&pDispNode);
-		IHTMLElement* pEl = GetHTMLElementFromDisp(pDispNode);
-		wstring wTerm2 = GetAttributeValue(pEl, L"lwtTerm");
-		if (wTerm2 == wTerm)
-		int i = 0;
-	}
 	/*
 		WordsInTerm
 		input condition: expects some valid term in canonical form
@@ -657,7 +649,6 @@ private:
 	}
 	void UpdatePageSpans(IHTMLDocument2* pDoc, const wstring& wTerm, const wstring& wNewStatus)
 	{
-		return UpdatePageSpans4(pDoc, wTerm, wNewStatus);
 		IHTMLElementCollection* iEC = NULL;
 		HRESULT hr = pDoc->get_all(&iEC);
 		if (FAILED(hr))
@@ -823,7 +814,7 @@ private:
 	{
 		return regex_replace(in, wregex(L"([$.?\\^*+()])"), L"\\$1");
 	}
-	int FindProperCloseTagPos(const wstring& in, int nOpenTagPos)
+	int FindProperCloseTagPos(const wstring& in, unsigned int nOpenTagPos)
 	{
 		assert(in.find(L"<", nOpenTagPos) == nOpenTagPos);
 		wstring::size_type i = nOpenTagPos + 1;
@@ -1188,14 +1179,15 @@ private:
 	{
 		if (bWithSpaces)
 		{
-			int pos = -1; //offset to jive with do loop
+			unsigned int pos = 0;
 
-			do
+			while (pos != wstring::npos)
 			{
-				++pos;
 				pos = wMWTerm.find(L" ", pos);
 				usetCacheMWFragments.insert(wstring(wMWTerm, 0, pos));
-			} while (pos != wstring::npos);
+				if (pos != wstring::npos)
+					++pos;
+			}
 		}
 		else
 		{
@@ -1269,11 +1261,11 @@ private:
 	}
 	wstring& EscapeSQLQueryValue(wstring& wQuery)
 	{
-		int pos = wQuery.find_first_of(L"'\\");
+		unsigned int pos = wQuery.find_first_of(L"'\\");
 		if (pos == wstring::npos)
 			return wQuery;
 
-		int pos2;
+		unsigned int pos2;
 		pos = wQuery.find('\'');
 		while (pos != wstring::npos)
 		{
@@ -1309,7 +1301,6 @@ private:
 	void CacheDBHitsWithListRemove(list<wstring>& lstItems, int nAtATime = 1000, bool bIsMultiWord = false)
 	{
 		int MAX_FIELD_WIDTH = 255;
-		bool bWithList = false;
 		vector<wstring> vQueries;
 		list<wstring> lstCopy(lstItems);
 
@@ -1490,7 +1481,7 @@ private:
 	}
 	void wstring_replaceAll(wstring& out, const wstring& find, const wstring& replace)
 	{
-		int pos = 0;
+		unsigned int pos = 0;
 		int replaceLen = find.size();
 		while (pos != wstring::npos)
 		{
@@ -1501,11 +1492,6 @@ private:
 				pos += replace.size();
 			}
 		}
-	}
-	void ReplaceNecessaryCharsWithHTMLEntities(wstring& out)
-	{
-		//wstring_replaceAll(out, L"&", L"&amp;");
-		//wstring_replaceAll(out, L"<", L"&lt;");
 	}
 	/*	
 		!!! External dependencies: Adding New MWSpans relies on the filtering of class global TreeWalker pTW
@@ -1912,7 +1898,6 @@ private:
 
 		wstring wOuterHTML;
 		unsigned int lastPosition = 0;
-		unsigned int textLength = wText.length();
 
 		IHTMLElement *pNew = CreateElement(pDoc, L"span"); SmartCOMRelease scNew(pNew);
 		if (!pNew)
@@ -1955,7 +1940,7 @@ private:
 
 		// create a stack of records for any multi-word term records and add their div recs to the page
 		lastPosition = 0; // reset position
-		int curPosition = 0;
+		unsigned int curPosition = 0;
 		for(unsigned int i = 0; i < words.size(); ++i)
 		{
 			if (words[i] == termSpacer)
@@ -2039,7 +2024,7 @@ private:
 		if (FAILED(hr) || !pDoc)
 			return;
 
-		for (int i = 0; i < sp_vWords->size(); i += MAX_MYSQL_INLIST_LEN)
+		for (unsigned int i = 0; i < sp_vWords->size(); i += MAX_MYSQL_INLIST_LEN)
 		{
 			wstring	wInList;
 
@@ -2124,13 +2109,13 @@ private:
 		}
 		else
 		{
-			for (int i = 0; i < (*sp_vWords).size(); i += MAX_MYSQL_INLIST_LEN)
+			for (unsigned int i = 0; i < (*sp_vWords).size(); i += MAX_MYSQL_INLIST_LEN)
 			{
 				list<wstring> cWords;
 				wstring	wInList;
 
 				// create buffer of uncached terms
-				for (int j = 0; j < MAX_MYSQL_INLIST_LEN && i+j < (*sp_vWords).size(); ++j)
+				for (unsigned int j = 0; j < MAX_MYSQL_INLIST_LEN && i+j < (*sp_vWords).size(); ++j)
 				{
 					cache_it it = cache->find((*sp_vWords)[i+j]);
 					if (TermNotCached(it))
@@ -2353,8 +2338,8 @@ private:
 		
 		while (!bHeadStartComplete)
 		{
-			std:mutex n;
-			std::unique_lock<mutex> lk(n);
+			mutex n;
+			unique_lock<mutex> lk(n);
 			cv.wait(lk);
 			if (bShuttingDown)
 				return;
@@ -2386,7 +2371,6 @@ private:
 		IHTMLElement* pElement = nullptr;
 		IHTMLDOMTextNode* pText = nullptr;
 		bool bAwaitElement = false;
-		unsigned int count = 0;
 		
 		// this while loop manages reference counts manually
 		while(SUCCEEDED(pDocTree->nextNode(&pNextNodeDisp)) && pNextNodeDisp)
@@ -2450,6 +2434,9 @@ private:
 			DeleteObject(vDelete[i]);
 		vDelete.clear();
 	}
+
+#pragma warning( push )
+#pragma warning( disable : 4100 )
 	static INT_PTR CALLBACK DlgProc_CtrlDlg(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	{
 		switch(uMsg)
@@ -2480,6 +2467,7 @@ private:
 
 		return static_cast<INT_PTR>(0);
 	}
+#pragma warning ( pop )
 	//static INT_PTR CALLBACK DlgProc_ChangeStatus(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	//{
 	//	switch(uMsg)
@@ -3002,7 +2990,7 @@ private:
 		IHTMLEventObj* pEvent = GetEventFromDocument(pDoc); SmartCOMRelease scEvent(pEvent);
 		if (!pEvent) return;
 
-		IHTMLElement* pElement = GetClickedElementFromEvent(pEvent, pDoc); SmartCOMRelease scElement(pElement);
+		IHTMLElement* pElement = GetClickedElementFromEvent(pEvent); SmartCOMRelease scElement(pElement);
 		if (!pElement) return;
 
 		wstring wActionReq = GetAttributeValue(pElement, L"lwtAction");
@@ -3075,7 +3063,7 @@ private:
 
 		return event;
 	}
-	IHTMLElement* GetClickedElementFromEvent(IHTMLEventObj* pEvent, IHTMLDocument2* pDoc)
+	IHTMLElement* GetClickedElementFromEvent(IHTMLEventObj* pEvent)
 	{
 		long x, y;
 		pEvent->get_clientX(&x);
@@ -3083,7 +3071,6 @@ private:
 
 		IHTMLElement* pElement;
 		HRESULT hr = pEvent->get_srcElement(&pElement);
-		//HRESULT hr = pDoc->elementFromPoint(x, y, &pElement);
 		if (FAILED(hr))
 		{
 			TRACE(L"%s", L"Leaving GetClickedElementFromEvent with error result\n");
@@ -3108,12 +3095,14 @@ private:
 			}
 		}
 	}
+#pragma warning( push )
+#pragma warning( disable : 4100 )
 	HRESULT _stdcall Invoke(DISPID dispidMember, REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pvarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr)
 	{
 		if (dispidMember == DISPID_HTMLDOCUMENTEVENTS_ONCLICK)
 			HandleClick();
 		else if (dispidMember == DISPID_BEFORENAVIGATE2)
-			int i = 0;
+			__noop;
 		else if (dispidMember == DISPID_HTMLDOCUMENTEVENTS_ONCONTEXTMENU)
 			HandleRightClick();
 		else if (dispidMember == DISPID_DOCUMENTCOMPLETE)
@@ -3124,6 +3113,7 @@ private:
 		//if (dispidMember == DISPID_NAVIGATECOMPLETE2)
 		//if (dispidMember == DISPID_ONQUIT)
 	}
+#pragma warning( pop )
 
 /* THIS IS POTENTIAL CODE FOR AFTER DOCUMENT COMPLETE */
 /* it would allow javascript to directly access bho, with native calls like window.lwtbho.docommand(); */
@@ -3157,7 +3147,6 @@ private:
 	IWebBrowser2* pBrowser;
 	IConnectionPoint* pCP;
 	IConnectionPoint* pHDEv;
-	IDOMNodeIterator* pNI;
 	IDOMTreeWalker* pTW;
 	IDispatch* pDispBrowser;
 
@@ -3210,7 +3199,7 @@ inline void LwtBho::LoadJavascriptFile()
 	HRSRC rc = ::FindResource(hInstance, MAKEINTRESOURCE(IDR_LWTJAVASCRIPT01),
 		MAKEINTRESOURCE(JAVASCRIPT));
 	HGLOBAL rcData = ::LoadResource(hInstance, rc);
-	DWORD size = ::SizeofResource(hInstance, rc);
+	//DWORD size = ::SizeofResource(hInstance, rc);
 	wJavascript = to_wstring(static_cast<const char*>(::LockResource(rcData)));
 }
 
@@ -3225,7 +3214,6 @@ inline LwtBho::LwtBho()
 	pBrowser = nullptr;
 	pCP = nullptr;
 	pHDEv = nullptr;
-	pNI = nullptr;
 	pTW = nullptr;
 	pDispBrowser = nullptr;
 	cache = nullptr;

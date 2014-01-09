@@ -41,6 +41,8 @@ HRESULT STDMETHODCALLTYPE chaj::DOM::DOMIteratorFilter::QueryInterface(REFIID ri
 
 // IDispatch implementation
 HRESULT STDMETHODCALLTYPE chaj::DOM::DOMIteratorFilter::GetTypeInfoCount(unsigned int FAR* pctinfo) {*pctinfo=1; return NOERROR;}
+#pragma warning( push )
+#pragma warning( disable : 4100 )
 HRESULT STDMETHODCALLTYPE chaj::DOM::DOMIteratorFilter::GetTypeInfo(unsigned int iTInfo, LCID lcid, ITypeInfo FAR* FAR*  ppTInfo) {return NOERROR;}
 HRESULT STDMETHODCALLTYPE chaj::DOM::DOMIteratorFilter::GetIDsOfNames(REFIID riid, OLECHAR FAR* FAR* rgszNames, unsigned int cNames, LCID lcid, DISPID FAR* rgDispId) {return NOERROR;}
 HRESULT STDMETHODCALLTYPE chaj::DOM::DOMIteratorFilter::Invoke(DISPID dispidMember, REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pvarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr)
@@ -55,6 +57,7 @@ HRESULT STDMETHODCALLTYPE chaj::DOM::DOMIteratorFilter::Invoke(DISPID dispidMemb
 	}
 	return S_OK;
 }
+#pragma warning ( pop )
 
 std::wstring chaj::DOM::GetAttributeValue(IHTMLElement* pElement, const std::wstring& wstrAttribute, long lFlags)
 {
@@ -171,6 +174,9 @@ IDocumentTraversal* chaj::DOM::GetDocTravFromDoc(IHTMLDocument2* pDoc)
 {
 	IDocumentTraversal* res = nullptr;
 	HRESULT hr = pDoc->QueryInterface(IID_IDocumentTraversal, reinterpret_cast<void**>(&res));
+	if (FAILED(hr) || !res)
+		res = nullptr;
+
 	return res;
 }
 IHTMLBodyElement* chaj::DOM::GetBodyElementFromDoc(IHTMLDocument2* pDoc)
@@ -247,6 +253,8 @@ IHTMLElementCollection* chaj::DOM::GetAllElementsFromDoc(IHTMLDocument2* pDoc)
 {
 	IHTMLElementCollection* iEC = nullptr;
 	HRESULT hr = pDoc->get_all(&iEC);
+	if (FAILED(hr))
+		iEC = nullptr;
 	return iEC;
 }
 IHTMLElement* chaj::DOM::GetElementFromId(const std::wstring& wstrId, IHTMLDocument2* pDoc)
@@ -282,9 +290,9 @@ HRESULT chaj::DOM::SetElementClass(IHTMLElement* pElement, const std::wstring& w
 std::wstring chaj::DOM::GetElementClass(IHTMLElement* pElement)
 {
 	BSTR bstrStat = NULL;
+	std::wstring out;
 	HRESULT hr = pElement->get_className(&bstrStat);
-	std::wstring out(L"");
-	if (bstrStat != NULL)
+	if (!FAILED(hr) && bstrStat != NULL)
 	{
 		out.append(bstrStat);
 		SysFreeString(bstrStat);
