@@ -32,8 +32,6 @@ function lwtSetup()
 	window.googleTrans_2 = document.getElementById('lwtextrapgoogletrans_2');
 	window.googleTransLink = document.getElementById('lwtgoogletrans').getAttribute('src');
 	window.multiDictLink = document.getElementById('lwtMultiDictLink');
-	window.popup1Transparent = document.getElementById('lwtTermTrans');
-	window.popup2Transparent = document.getElementById('lwtTermTrans2');
 	window.curInfoTerm = document.getElementById('lwtcurinfoterm');
 }
 
@@ -151,7 +149,9 @@ function lwtmout(e)
 {
 	fixPageXY(e);
 	var statbox = window.curStatbox;
-	if (!XYOnElement(e.pageX, e.pageY, statbox))
+	var wordSpan = document.getElementById('lwtcursel');
+	var destroyed = wordSpan == null || statbox == null;
+	if (destroyed || (!XYOnElement(e.pageX, e.pageY, wordSpan) && !XYOnElement(e.pageX, e.pageY, statbox)))
 	{
 		lwtcontextexit();
 	}
@@ -371,9 +371,7 @@ function lwtshowinlinestat(e, curTerm, origin)
 	if (tlo + statbox.offsetWidth > window.innerWidth)
 		tlo = tlo + posElem.offsetWidth - 81;
 	statbox.style.left = tlo + 'px';
-	window.popup1Transparent.style.height = posElem.offsetHeight + 'px';
-	window.popup2Transparent.style.height = posElem.offsetHeight + 'px';
-	statbox.style.top = inlineTop + 'px';
+	statbox.style.top = (inlineTop + posElem.offsetHeight) + 'px';
 
 	var inlineBottom = inlineTop + statbox.offsetHeight;
 	statbox.style.display = 'block';

@@ -1589,7 +1589,6 @@ private:
 		wstring out;
 		out.append(
 		L"<div id=\"lwtinlinestat\" style=\"display:none;position:absolute;\" onmouseout=\"lwtdivmout(event);\">"
-		L"<span id=\"lwtTermTrans\" style=\"display:inline-block\">&nbsp;</span><br />"
 		L"<span class=\"lwtStat1\" id=\"lwtsetstat1\" lwtstat=\"1\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center\" lwtstatchange=\"true\">1</span>"
 		L"<span class=\"lwtStat2\" id=\"lwtsetstat2\" lwtstat=\"2\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" lwtstatchange=\"true\">2</span>"
 		L"<span class=\"lwtStat3\" id=\"lwtsetstat3\" lwtstat=\"3\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" lwtstatchange=\"true\">3</span>"
@@ -1609,7 +1608,6 @@ private:
 
 		out.append(
 		L"<div id=\"lwtInlineMWEndPopup\" style=\"display:none;position:absolute;\" onmouseout=\"lwtdivmout(event);\">"
-		L"<span id=\"lwtTermTrans2\">&nbsp;</span><br />"
 		L"<span class=\"lwtStat1\" lwtstat=\"1\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center\" onclick=\"captureMW(49);\">1</span>"
 		L"<span class=\"lwtStat2\" lwtstat=\"2\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" onclick=\"captureMW(50);\">2</span>"
 		L"<span class=\"lwtStat3\" lwtstat=\"3\" style=\"border-top:solid black 1px;border-left:solid black 1px;border-bottom:solid black 1px;display:inline-block;width:15px;text-align:center;\" onclick=\"captureMW(51);\">3</span>"
@@ -2386,8 +2384,10 @@ private:
 						dhr(pDocTree->nextNode(&pAfterTextDisp)); // grab the node that follows this text node as a bookmark
 						pText = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNextNode);
 						if (pText)
+						{
 							ParseTextNode_AllAtOnce(pText, pDoc, usetPageTerms);
-						pText->Release();
+							pText->Release();
+						}
 						if (pAfterTextDisp) // kinda hackish, but take whatever node now precedes the bookmark so loop will increment back to bookmark
 						{
 							pAfterTextDisp->Release();
