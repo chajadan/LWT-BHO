@@ -53,6 +53,16 @@ bool _trace(TCHAR *format, ...)
 }
 #endif
 
+LPSTREAM chaj::COM::GetInterfaceStream(const IID& riid, IUnknown* pInterface)
+{
+	LPSTREAM pInterfaceStream = nullptr;
+	HRESULT hr = CoMarshalInterThreadInterfaceInStream(riid, pInterface, &pInterfaceStream);
+	if (SUCCEEDED(hr) && pInterfaceStream)
+		return pInterfaceStream;
+	else
+		return nullptr;
+}
+
 std::string chaj::str::wstring_to_string(std::wstring in)
 {
 	std::wstring_convert<std::codecvt<wchar_t, char, mbstate_t>> wc;

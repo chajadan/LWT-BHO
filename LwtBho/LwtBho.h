@@ -432,6 +432,8 @@ private:
 		unordered_map<wstring,TermRecord>::iterator it = cache->find(wTerm);
 		assert(it != cache->end());
 		(*it).second.wStatus = wNewStatus;
+		if (wNewStatus == L"0" && IsMultiwordTerm(wTerm))
+			cache->erase(it);
 	}
 	void InsertOrUpdateCacheItem(const wstring& wTerm, const wstring& wNewStatus)
 	{
@@ -649,22 +651,22 @@ private:
 	}
 	void UpdatePageSpans(IHTMLDocument2* pDoc, const wstring& wTerm, const wstring& wNewStatus)
 	{
-		IHTMLElementCollection* iEC = NULL;
+		IHTMLElementCollection* iEC = nullptr;
 		HRESULT hr = pDoc->get_all(&iEC);
-		if (FAILED(hr))
+		if (FAILED(hr) || !iEC)
 		{
 			mb("Could not update page elements.", "288fhuidih");
 			return;
 		}
 
-		IDispatch* iDisp = NULL;
+		IDispatch* iDisp = nullptr;
 		VARIANT vTagName;
 		vTagName.vt = VT_BSTR;
 		_bstr_t bstrTagName("span");
 		vTagName.bstrVal = bstrTagName.GetBSTR();
 		hr = iEC->tags(vTagName, &iDisp);
 		iEC->Release();
-		if (FAILED(hr))
+		if (FAILED(hr) || !iDisp)
 		{
 			mb("Could not get list of span elements.", "302yfhjud");
 			return;
@@ -673,7 +675,7 @@ private:
 		IHTMLElementCollection* iECSpans;
 		hr = iDisp->QueryInterface(IID_IHTMLElementCollection, (void**)&iECSpans);
 		iDisp->Release();
-		if (FAILED(hr))
+		if (FAILED(hr) || !iECSpans)
 		{
 			mb("Could not get an element collection interface.", "311uol;jij");
 			return;
@@ -710,13 +712,13 @@ private:
 		{
 			vIndex.lVal = i;
 			hr = iECSpans->item(vIndex, vSubIndex, (IDispatch**)&pDispElem);
-			if (FAILED(hr))
+			if (FAILED(hr) || !pDispElem)
 			{
 				continue;
 			}
 			hr = pDispElem->QueryInterface(IID_IHTMLElement, (void**)&pSpan);
 			pDispElem->Release();
-			if (FAILED(hr))
+			if (FAILED(hr) || !pSpan)
 			{
 				continue;
 			}
@@ -1373,7 +1375,7 @@ private:
 		
 		IConnectionPointContainer* aCPC;
 		HRESULT hr = pDoc->QueryInterface(IID_IConnectionPointContainer, (void**)&aCPC);
-		if (FAILED(hr))
+		if (FAILED(hr) || !aCPC)
 		{
 			mb(_T("FindDocCPC fail"), _T("260suhdhf"));
 			return;
@@ -1382,7 +1384,7 @@ private:
 		IConnectionPoint* pHDEv2;
 		hr = aCPC->FindConnectionPoint(DIID_HTMLDocumentEvents, &pHDEv2);
 		aCPC->Release();
-		if (FAILED(hr))
+		if (FAILED(hr) || !pHDEv2)
 		{
 			mb(_T("Could not find a place to register a click listener"), _T("267sezhdu -- FindHDEv fail"));
 			return;
@@ -1398,11 +1400,11 @@ private:
 		
 			pHDEv = pHDEv2;
 			hr = pHDEv->Advise(reinterpret_cast<IDispatch*>(this), &Cookie_pHDev);
+			if (FAILED(hr))
+				mb("Error. Will not perceive mouse clicks on this page. Will try to annotate anyway.", "1000duwksm");
 		}
 		else
 			pHDEv2->Release();
-		if (FAILED(hr))
-			mb("Error. Will not perceive mouse clicks on this page. Will try to annotate anyway.", "1000duwksm");
 	}
 	void AppendSoloWordSpan(wstring& out, const wstring& wAsAppended, const wstring& wWordCanonical, const TermRecord* pRec)
 	{
@@ -1765,7 +1767,7 @@ private:
 		pSite = pUnkSite;
 
 		hr = pUnkSite->QueryInterface(IID_IWebBrowser2, (void**)&pBrowser);
-		if (FAILED(hr))
+		if (FAILED(hr) || !pBrowser)
 		{
 			mb(_T("IWebBrowser2 fail"), _T("1495hfhoksj"));
 			pSite->Release();
@@ -1777,7 +1779,7 @@ private:
 
 		IConnectionPointContainer* pCPC;
 		hr = pUnkSite->QueryInterface(IID_IConnectionPointContainer, (void**)&pCPC);
-		if (FAILED(hr))
+		if (FAILED(hr) || !pCPC)
 		{
 			mb(_T("ICPC fail"), _T("1505hdbvllkjd"));
 			pBrowser->Release();
@@ -1791,7 +1793,7 @@ private:
 
 		hr = pCPC->FindConnectionPoint(DIID_DWebBrowserEvents2, &pCP);
 		pCPC->Release();
-		if (FAILED(hr))
+		if (FAILED(hr) || !pCP)
 		{
 			mb(_T("FindCP fail"), _T("465gasydg"));
 			pBrowser->Release();
@@ -1823,7 +1825,7 @@ private:
 		{
 			IUnknown* iThis;
 			HRESULT hr = pSite->QueryInterface(riid, (void**)&iThis);
-			if (FAILED(hr))
+			if (FAILED(hr) || !iThis)
 				return E_NOINTERFACE;
 			else
 			{
@@ -2018,10 +2020,8 @@ private:
 
 		const int MAX_MYSQL_INLIST_LEN = 500;
 
-		IHTMLDocument2* pDoc = nullptr;
-		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
-		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
-		if (FAILED(hr) || !pDoc)
+		IHTMLDocument2* pDoc = GetInterfaceFromStream<IHTMLDocument2>(pDocStream); SmartCOMRelease scDoc(pDoc);
+		if (!pDoc)
 			return;
 
 		for (unsigned int i = 0; i < sp_vWords->size(); i += MAX_MYSQL_INLIST_LEN)
@@ -2097,10 +2097,8 @@ private:
 
 		const int MAX_MYSQL_INLIST_LEN = 500;
 
-		IHTMLDocument2* pDoc = nullptr;
-		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
-		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
-		if (FAILED(hr) || !pDoc)
+		IHTMLDocument2* pDoc = GetInterfaceFromStream<IHTMLDocument2>(pDocStream); SmartCOMRelease scDoc(pDoc);
+		if (!pDoc)
 			return;
 
 		if ((*sp_vWords).size() == 0)
@@ -2253,14 +2251,9 @@ private:
 				break;
 		}
 	}
-	IWebBrowser2* UnstreamBrowser_Helper__Thread_OnPageFullyLoaded(LPSTREAM pBrowserStream)
+	IWebBrowser2* GetBrowserFromStream(LPSTREAM pBrowserStream)
 	{
-		IWebBrowser2* pBrowser = nullptr;
-		HRESULT hr = CoGetInterfaceAndReleaseStream(pBrowserStream, IID_IWebBrowser2, reinterpret_cast<LPVOID*>(&pBrowser));
-		if (FAILED(hr) || !pBrowser)
-			return nullptr;
-		else
-			return pBrowser;
+		return GetInterfaceFromStream<IWebBrowser2>(pBrowserStream);
 	}
 	bool StartWordCache_Helper__Thread_OnPageFullyLoaded(IHTMLDocument2* pDoc, shared_ptr<vector<wstring>>& sp_vWords, condition_variable& cv, bool& bHeadStartComplete)
 	{
@@ -2303,7 +2296,7 @@ private:
 		if (!pBrowserStream)
 			return;
 
-		IWebBrowser2* pBrowser = UnstreamBrowser_Helper__Thread_OnPageFullyLoaded(pBrowserStream); SmartCOMRelease scBrowser(pBrowser, true); // AddRef and schedule Release
+		IWebBrowser2* pBrowser = GetBrowserFromStream(pBrowserStream); SmartCOMRelease scBrowser(pBrowser);
 		if (!pBrowser)
 			return;
 
@@ -2311,15 +2304,14 @@ private:
 		if (!pDoc)
 			return;
 
-		//wstring wBody;
-		//IHTMLElement* pBody = GetBodyFromDoc(pDoc);
-		//GetBodyContent(wBody, pBody, pDoc);
 		AppendCss(pDoc);
 		AppendHtmlBlocks(pDoc);
 		AppendJavascript(pDoc);
 
 		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc); SmartCOMRelease scSetupLink(pSetupLink);
-		assert(pSetupLink);
+		if (!pSetupLink) // TODO: add an error log message
+			return;
+
 		dhr(pSetupLink->click());
 
 		// mutex and conditional variable to signal a batch of cached words
@@ -2693,7 +2685,7 @@ private:
 		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser);
 		if (!pDoc) return;
 
-		IHTMLEventObj* pEvent = GetEventFromDocument(pDoc);
+		IHTMLEventObj* pEvent = GetEventFromDoc(pDoc);
 		if (!pEvent)
 		{
 			pDoc->Release();
@@ -2982,16 +2974,32 @@ private:
 			tStmt.free_results();
 		}
 	}
-	void HandleClick()
+	void OnClick()
 	{
 		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
-		if (!pDoc) return;
+		if (!pDoc)
+			return;
 
-		IHTMLEventObj* pEvent = GetEventFromDocument(pDoc); SmartCOMRelease scEvent(pEvent);
-		if (!pEvent) return;
+		IHTMLEventObj* pEvent = GetEventFromDoc(pDoc); SmartCOMRelease scEvent(pEvent);
 
 		IHTMLElement* pElement = GetClickedElementFromEvent(pEvent); SmartCOMRelease scElement(pElement);
-		if (!pElement) return;
+
+		LPSTREAM pBrowserStream = GetBrowserStream();
+		LPSTREAM pElementStream = GetInterfaceStream(IID_IHTMLElement, pElement);
+
+		if (pBrowserStream)
+			std::thread(&LwtBho::Thread_HandleClick, this, pBrowserStream, pElementStream).detach();
+	}
+	void Thread_HandleClick(LPSTREAM pBrowserStream, LPSTREAM pClickedElementStream)
+	{
+		if (!pBrowserStream || !pClickedElementStream)
+			return;
+
+		IWebBrowser2* pBrowser = GetBrowserFromStream(pBrowserStream); SmartCOMRelease scBrowser(pBrowser);
+		IHTMLElement* pElement = GetInterfaceFromStream<IHTMLElement>(pClickedElementStream); SmartCOMRelease scElement(pElement);
+
+		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
+		if (!pDoc) return;
 
 		wstring wActionReq = GetAttributeValue(pElement, L"lwtAction");
 		wstring wStatChange = GetAttributeValue(pElement, L"lwtstatchange");
@@ -3025,59 +3033,9 @@ private:
 			OnTableSetChange(pDoc);
 		}
 	}
-	IHTMLElement* GetHTMLElementFromDisp(IDispatch* pDispElement)
+	LPSTREAM GetBrowserStream()
 	{
-		IHTMLElement* res = NULL;
-		pDispElement->QueryInterface(IID_IHTMLElement, (void**)&res);
-		return res;
-	}
-	/*
-		GetDocumentFromBrowser
-		Caller contract: caller must release the interface returned if non-null
-		Input conditions: a valid pointer to extant IWebBrowser2 interface
-		Return value: returns nullptr on error, or a valid pointer to an extant IHTMLDocument2 interface
-	*/
-
-	IHTMLEventObj* GetEventFromDocument(IHTMLDocument2* pDoc)
-	{
-		IHTMLWindow2* window = NULL;
-		HRESULT hr = pDoc->get_parentWindow(&window);
-		if (FAILED(hr))
-		{
-			mb(L"get_parentWindow failed", L"2834hduufh");
-			pDoc->Release();
-			TRACE(L"%s", L"Leaving GetEventFromDocument with error result\n");
-			return nullptr;
-		}
-
-		IHTMLEventObj* event;
-		hr = window->get_event(&event);
-		window->Release();
-		if (FAILED(hr))
-		{
-			mb(L"get_event failed", L"534shefhhfu");
-			pDoc->Release();
-			TRACE(L"%s", L"Leaving GetEventFromDocument with error result\n");
-			return nullptr;
-		}
-
-		return event;
-	}
-	IHTMLElement* GetClickedElementFromEvent(IHTMLEventObj* pEvent)
-	{
-		long x, y;
-		pEvent->get_clientX(&x);
-		pEvent->get_clientY(&y);
-
-		IHTMLElement* pElement;
-		HRESULT hr = pEvent->get_srcElement(&pElement);
-		if (FAILED(hr))
-		{
-			TRACE(L"%s", L"Leaving GetClickedElementFromEvent with error result\n");
-			return nullptr;
-		}
-
-		return pElement;
+		return GetInterfaceStream(IID_IWebBrowser2, pBrowser);
 	}
 	void OnDocumentComplete(DISPPARAMS* pDispParams)
 	{
@@ -3088,9 +3046,8 @@ private:
 			{
 				IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
 				ReceiveEvents(pDoc);
-				LPSTREAM pBrowserStream = nullptr;
-				HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IWebBrowser2, this->pBrowser, &pBrowserStream);
-				if (SUCCEEDED(hr) && pBrowserStream)
+				LPSTREAM pBrowserStream = GetBrowserStream();
+				if (pBrowserStream)
 					cpThreads.push_back(new std::thread(&LwtBho::Thread_OnPageFullyLoaded, this, pBrowserStream));
 			}
 		}
@@ -3100,7 +3057,7 @@ private:
 	HRESULT _stdcall Invoke(DISPID dispidMember, REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pvarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr)
 	{
 		if (dispidMember == DISPID_HTMLDOCUMENTEVENTS_ONCLICK)
-			HandleClick();
+			OnClick();
 		else if (dispidMember == DISPID_BEFORENAVIGATE2)
 			__noop;
 		else if (dispidMember == DISPID_HTMLDOCUMENTEVENTS_ONCONTEXTMENU)

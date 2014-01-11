@@ -25,28 +25,34 @@ namespace chaj
 
 		IHTMLDOMTextNode* SplitTextNode(IHTMLDOMTextNode* pTextNode, long offset);
 		
+		// Element related functions
+		IHTMLElement* CreateElement(IHTMLDocument2* pDoc, const std::wstring& tag);
 		std::wstring GetElementClass(IHTMLElement* pElement);
 		HRESULT SetElementClass(IHTMLElement* pElement, const std::wstring& wstrNewClass);
 		IHTMLElement* GetElementFromId(const std::wstring& wstrId, IHTMLDocument2* pDoc);
-
-		IHTMLElement* CreateElement(IHTMLDocument2* pDoc, const std::wstring& tag);
-		IHTMLElement* GetBodyFromDoc(IHTMLDocument2* pDoc);
-		IHTMLBodyElement* GetBodyElementFromDoc(IHTMLDocument2* pDoc);
-		IHTMLTxtRange* GetBodyTxtRangeFromDoc(IHTMLDocument2* pDoc);
-		IHTMLElementCollection* GetAllElementsFromDoc(IHTMLDocument2* pDoc);
-		IHTMLElement* GetHeadFromDoc(IHTMLDocument2* pDoc);
-		IDocumentTraversal* GetDocTravFromDoc(IHTMLDocument2* pDoc);
-
-		IHTMLDocument2* GetDocumentFromBrowser(IWebBrowser2* pBrowser);
-
-		std::wstring GetTagFromElement(IHTMLElement* pElement);
 		std::wstring GetAttributeValue(IHTMLElement* pElement, const std::wstring& wstrAttribute, long lFlags = 0);
 		HRESULT SetAttributeValue(IHTMLElement* pElement, const std::wstring& wstrAttribute, const std::wstring& wstrAttValue, long lFlags = 0);
 		HRESULT SetElementInnerText(IHTMLElement* pElement, const std::wstring& wstrInnerText);
 		HRESULT SetElementOuterHTML(IHTMLElement* pElement, const std::wstring& wstrOuterHTML);
 
+		// Get this from that funcs
+			// From Browser
+		IHTMLDocument2* GetDocumentFromBrowser(IWebBrowser2* pBrowser);
+			// From IDispath
+		IHTMLElement* GetElementFromDisp(IDispatch* pDispElement);
+			// From Document
+		IHTMLElement* GetBodyFromDoc(IHTMLDocument2* pDoc);
+		IHTMLBodyElement* GetBodyElementFromDoc(IHTMLDocument2* pDoc);
+		IHTMLTxtRange* GetBodyTxtRangeFromDoc(IHTMLDocument2* pDoc);
+		IHTMLElementCollection* GetAllElementsFromDoc(IHTMLDocument2* pDoc);
+		IHTMLEventObj* GetEventFromDoc(IHTMLDocument2* pDoc);
+		IHTMLElement* GetHeadFromDoc(IHTMLDocument2* pDoc);
+		IDocumentTraversal* GetDocTravFromDoc(IHTMLDocument2* pDoc);
+			// From Element
+		std::wstring GetTagFromElement(IHTMLElement* pElement);
+			// From Event
+		IHTMLElement* GetClickedElementFromEvent(IHTMLEventObj* pEvent);
 
-		IHTMLElement* GetHTMLElementFromDispatch(IDispatch* pDispElement);
 
 		IDOMTreeWalker* GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* pFilter, long lShow = SHOW_ALL);
 		IDOMTreeWalker* GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, long (*FilterFunc)(IDispatch*), long lShow = SHOW_ALL);

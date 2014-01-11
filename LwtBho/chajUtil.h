@@ -111,6 +111,19 @@ namespace chaj
 			return pOut;
 		}
 
+		LPSTREAM GetInterfaceStream(const IID& riid, IUnknown* pInterface);
+
+		template <typename T>
+		T* GetInterfaceFromStream(LPSTREAM pInterfaceStream)
+		{
+			T* pInterface = nullptr;
+			HRESULT hr = CoGetInterfaceAndReleaseStream(pInterfaceStream, __uuidof(T), reinterpret_cast<LPVOID*>(&pInterface));
+			if (FAILED(hr) || !pInterface)
+				return nullptr;
+			else
+				return pInterface;
+		}
+
 		class SmartCOMRelease
 		{
 		public:

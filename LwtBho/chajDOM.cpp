@@ -107,12 +107,6 @@ HRESULT chaj::DOM::SetElementOuterHTML(IHTMLElement* pElement, const std::wstrin
 	SysFreeString(bstrOut);
 	return hr;
 }
-IHTMLElement* chaj::DOM::GetHTMLElementFromDispatch(IDispatch* pDispElement)
-{
-	IHTMLElement* res = NULL;
-	pDispElement->QueryInterface(IID_IHTMLElement, (void**)&res);
-	return res;
-}
 IHTMLDOMTextNode* chaj::DOM::SplitTextNode(IHTMLDOMTextNode* pTextNode, long offset)
 {
 	IHTMLDOMNode* pNode = nullptr;
@@ -208,7 +202,22 @@ IHTMLTxtRange* chaj::DOM::GetBodyTxtRangeFromDoc(IHTMLDocument2* pDoc)
 	}
 	return pTxtRange;
 }
+IHTMLElement* chaj::DOM::GetClickedElementFromEvent(IHTMLEventObj* pEvent)
+{
+	long x, y;
+	pEvent->get_clientX(&x);
+	pEvent->get_clientY(&y);
 
+	IHTMLElement* pElement;
+	HRESULT hr = pEvent->get_srcElement(&pElement);
+	if (FAILED(hr))
+	{
+		TRACE(L"%s", L"Leaving GetClickedElementFromEvent with error result\n");
+		return nullptr;
+	}
+
+	return pElement;
+}
 HRESULT chaj::DOM::AppendStylesToDoc(const std::wstring& styles, IHTMLDocument2* pDoc)
 {
 	if (!pDoc)
@@ -257,6 +266,12 @@ IHTMLElementCollection* chaj::DOM::GetAllElementsFromDoc(IHTMLDocument2* pDoc)
 		iEC = nullptr;
 	return iEC;
 }
+IHTMLElement* chaj::DOM::GetElementFromDisp(IDispatch* pDispElement)
+{
+	IHTMLElement* res = NULL;
+	pDispElement->QueryInterface(IID_IHTMLElement, (void**)&res);
+	return res;
+}
 IHTMLElement* chaj::DOM::GetElementFromId(const std::wstring& wstrId, IHTMLDocument2* pDoc)
 {
 	IHTMLElementCollection* iEC = GetAllElementsFromDoc(pDoc);
@@ -271,7 +286,7 @@ IHTMLElement* chaj::DOM::GetElementFromId(const std::wstring& wstrId, IHTMLDocum
 	iEC->Release();
 	VariantClear(&vId);
 	VariantClear(&vIndex);
-	if (!iDisp)
+	if (FAILED(hr) || !iDisp)
 		return nullptr;
 	else
 	{
@@ -279,6 +294,30 @@ IHTMLElement* chaj::DOM::GetElementFromId(const std::wstring& wstrId, IHTMLDocum
 		iDisp->Release();
 		return retVal;
 	}
+}
+IHTMLEventObj* chaj::DOM::GetEventFromDoc(IHTMLDocument2* pDoc)
+{
+	IHTMLWindow2* window = NULL;
+	HRESULT hr = pDoc->get_parentWindow(&window);
+	if (FAILED(hr))
+	{
+		mb(L"get_parentWindow failed", L"2834hduufh");
+		TRACE(L"%s", L"Leaving GetEventFromDoc with error result\n");
+		return nullptr;
+	}
+
+	IHTMLEventObj* event;
+	hr = window->get_event(&event);
+	window->Release();
+	if (FAILED(hr))
+	{
+		mb(L"get_event failed", L"534shefhhfu");
+		pDoc->Release();
+		TRACE(L"%s", L"Leaving GetEventFromDoc with error result\n");
+		return nullptr;
+	}
+
+	return event;
 }
 HRESULT chaj::DOM::SetElementClass(IHTMLElement* pElement, const std::wstring& wstrNewClass)
 {

@@ -23,6 +23,10 @@ public:
 		DeleteCriticalSection(&CS_AddCacheEntry);
 	}
 	wstring getLgID() {return _wLgID;}
+	void erase(std::unordered_map<std::wstring,TermRecord>::iterator eraseIter)
+	{
+		_cache.erase(eraseIter);
+	}
 	std::unordered_map<std::wstring,TermRecord>::iterator find(const std::wstring& entry) 
 	{
 		std::unordered_map<std::wstring,TermRecord>::iterator it;
