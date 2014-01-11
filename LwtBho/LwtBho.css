@@ -6,4 +6,5 @@
 .lwtStat5 {background-color: #DDFFDD} 
 .lwtStat99 {background-color: #F8F8F8;border-bottom: solid 2px #CCFFCC} 
 .lwtStat98 {background-color: #F8F8F8;border-bottom: dashed 1px #000000} 
+.lwtStatUnloaded {background-color: #CBCBCB}
 #lwtcursel {border-left: solid black 1px;border-right: solid black 1px;border-top:solid black 1px}

@@ -46,11 +46,13 @@ using chaj::str::to_wstring;
 
 typedef regex_iterator<wstring::const_iterator, wchar_t,regex_traits<wchar_t>> wregex_iterator;
 typedef vector<wstring>::const_iterator wstr_c_it;
+typedef pair<wstring,TermRecord> TermEntry;
 const INT_PTR CTRL_FORCE_PARSE = static_cast<INT_PTR>(101);
 const INT_PTR CTRL_CHANGE_LANG = static_cast<INT_PTR>(102);
 const int MWSpanAltroSize = 7;
 const int MAX_FIELD_WIDTH = 255;
 const wstring wstrNewline(L"&#13;&#10;");
+const wstring wTermDivider(L"___LwtTD___");
 
 #define LWT_MAXWORDLEN 255
 #define LWT_MAX_MWTERM_LENGTH 9
@@ -228,7 +230,7 @@ private:
 			return;
 
 		AppendTermDivRec(scBody, wTerm, it->second);
-		AppendMWSpan(out, wTerm, &(it->second), to_wstring(uCount));
+		AppendMultiWordSpan(out, wTerm, &(it->second), to_wstring(uCount));
 
 		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
 		if (!pRange)
@@ -644,112 +646,40 @@ private:
 	}
 	void UpdatePageSpans(IHTMLDocument2* pDoc, const wstring& wTerm, const wstring& wNewStatus)
 	{
-		IHTMLElementCollection* iEC = nullptr;
-		HRESULT hr = pDoc->get_all(&iEC);
-		if (FAILED(hr) || !iEC)
-		{
-			mb("Could not update page elements.", "288fhuidih");
+		SmartCom<IHTMLElementCollection> pSpans = GetAllFromDoc_ByTag(pDoc, L"span");
+		if (!pSpans)
 			return;
-		}
-
-		IDispatch* iDisp = nullptr;
-		VARIANT vTagName;
-		vTagName.vt = VT_BSTR;
-		_bstr_t bstrTagName("span");
-		vTagName.bstrVal = bstrTagName.GetBSTR();
-		hr = iEC->tags(vTagName, &iDisp);
-		iEC->Release();
-		if (FAILED(hr) || !iDisp)
-		{
-			mb("Could not get list of span elements.", "302yfhjud");
-			return;
-		}
-
-		IHTMLElementCollection* iECSpans;
-		hr = iDisp->QueryInterface(IID_IHTMLElementCollection, (void**)&iECSpans);
-		iDisp->Release();
-		if (FAILED(hr) || !iECSpans)
-		{
-			mb("Could not get an element collection interface.", "311uol;jij");
-			return;
-		}
 
 		long lLength = 0;
-		hr = iECSpans->get_length(&lLength);
-		if (FAILED(hr))
-		{
-			iECSpans->Release();
-			mb("Could not get collection length.", "319dafesf");
+		HRESULT hr = pSpans->get_length(&lLength);
+		if (FAILED(hr) || lLength == 0)
 			return;
-		}
 
-		if (lLength == 0)
-		{
-			iECSpans->Release();
-			return;
-		}
-
-		VARIANT vIndex;
-		vIndex.vt = VT_I4;
-		IDispatch* pDispElem;
-		IHTMLElement* pSpan;
-		VARIANT vSubIndex;
-		vSubIndex.vt = VT_I4;
-		vSubIndex.lVal = 0;
-		wstring wNewStat;
-		wNewStat.append(L"lwtStat");
-		wNewStat.append(wNewStatus);
-		VARIANT varNewClassValue;
-		varNewClassValue.vt = VT_BSTR;
+		SmartCom<IDispatch> pDispElem;
+		SmartCom<IHTMLElement> pSpan;
+		VARIANT vIndex; VariantInit(&vIndex); vIndex.vt = VT_I4; 
+		VARIANT vSubIndex; VariantInit(&vSubIndex); vSubIndex.vt = VT_I4; vSubIndex.lVal = 0;
+		VARIANT varNewClassValue; VariantInit(&varNewClassValue); varNewClassValue.vt = VT_BSTR;
+		wstring wNewStat = L"lwtStat" + wNewStatus;
 		for (long i = 0; i < lLength; ++i)
 		{
 			vIndex.lVal = i;
-			hr = iECSpans->item(vIndex, vSubIndex, (IDispatch**)&pDispElem);
+			hr = pSpans->item(vIndex, vSubIndex, (IDispatch**)pDispElem);
 			if (FAILED(hr) || !pDispElem)
-			{
 				continue;
-			}
-			hr = pDispElem->QueryInterface(IID_IHTMLElement, (void**)&pSpan);
-			pDispElem->Release();
-			if (FAILED(hr) || !pSpan)
-			{
+
+			pSpan = GetElementFromDisp(pDispElem);
+			if (!pSpan)
 				continue;
-			}
-			wstring wAtt(L"lwtTerm");
-			wstring wAttValue = GetAttributeValue(pSpan, wAtt);
+
+			wstring wAttValue = GetAttributeValue(pSpan, L"lwtTerm");
 			if (wAttValue == wTerm)
 			{
-				//_bstr_t bstrClass("class");
 				_bstr_t bstrClassVal(wNewStat.c_str());
-				//varNewClassValue.bstrVal = bstrClassVal.GetBSTR();
-				//hr = pSpan->setAttribute(bstrClass.GetBSTR(), varNewClassValue, 0);
-				hr = pSpan->put_className(bstrClassVal.GetBSTR());//, varNewClassValue, 0);
+				pSpan->put_className(bstrClassVal.GetBSTR());
 			}
-			pSpan->Release();
 		}
-
-		iECSpans->Release();
 	}
-	//wstring GetAttributeValue(IHTMLElement* pEl, const wstring& wAtt)
-	//{
-	//	_bstr_t bstrAtt(wAtt.c_str());
-	//	VARIANT varAttValue;
-	//	varAttValue.vt = VT_BSTR;
-	//	HRESULT hr = pEl->getAttribute(bstrAtt.GetBSTR(), 2, &varAttValue);
-	//	//{
-	//	//	mb(L"Error upon attempting to retrieve attribute value.", wAtt);
-	//	//	return L"";
-	//	//}
-	//	if (FAILED(hr))
-	//		return wstring(L"");
-	//	else
-	//	{
-	//		if (varAttValue.vt == VT_NULL)
-	//			return wstring(L"");
-	//		else
-	//			return wstring(varAttValue.bstrVal);
-	//	}
-	//}
 	void SendLwtCommand(const wstring& wCommand, IHTMLDocument2* pDoc)
 	{
 		IHTMLElement* pBhoCommand = chaj::DOM::GetElementFromId(L"lwtBhoCommand", pDoc);
@@ -1390,39 +1320,35 @@ private:
 		else
 			pHDEv2->Release();
 	}
-	void AppendSoloWordSpan(wstring& out, const wstring& wAsAppended, const wstring& wWordCanonical, const TermRecord* pRec)
+	void AppendSoloWordSpan(wstring& out, const wstring& wVisibleForm, const wstring& wCanonicalTerm, const TermRecord* pRec)
 	{
-		AppendWithSegues(out, wAsAppended, wWordCanonical, pRec);
+		AppendTermSpan(out, wVisibleForm, wCanonicalTerm, pRec->wStatus, pRec->uIdent);
 	}
-	void AppendMWSpan(wstring& out, const wstring& wTermCanonical, const TermRecord* pRec, const wstring& wWordCount)
+	void AppendMultiWordSpan(wstring& out, const wstring& wCanonicalTerm, const TermRecord* pRec, const wstring& wWordCount)
 	{
 		out.append(L"<sup>");
-		AppendWithSegues(out, wWordCount, wTermCanonical, pRec);
+		AppendTermSpan(out, wWordCount, wCanonicalTerm, pRec->wStatus, pRec->uIdent);
 		out.append(L" </sup>");
 	}
-	void AppendWithSegues(wstring& out, const wstring& wAsAppended, const wstring& wTermCanonical, const TermRecord* pRec)
-	{
-		AppendTermIntro(out, wTermCanonical, pRec);
-		out.append(wAsAppended);
-		AppendTermAltro(out);
-	}
-	void AppendTermIntro(wstring& out, const wstring& wTermCanonical, const TermRecord* pRec)
+	void AppendTermSpan(wstring& out, const wstring& wVisibleForm, const wstring& wCanonicalTerm,  const wstring& wStatus, unsigned int Id)
 	{
 		out.append(L"<span class=\"lwtStat");
-		out += pRec->wStatus;
+		out += wStatus;
 		out.append(L"\" style=\"display:inline;margin:0px;color:black;\" lwtTerm=\"");
-		out.append(wTermCanonical);
-		out.append(L"\"");
+		out.append(wCanonicalTerm);
+		out.append(L"\" onmouseover=\"");
 
-		out.append(L" onmouseover=\"lwtmover('lwt");
-		out.append(to_wstring(pRec->uIdent));
-		out.append(L"', event, this);\" onmouseout=\"lwtmout(event);\"");
+		AppendTermSpanMouseoverAttribute(out, Id);
 
-		out.append(L">");
-	}
-	void AppendTermAltro(wstring& out)
-	{
+		out.append(L"\" onmouseout=\"lwtmout(event);\">");
+		out.append(wVisibleForm);
 		out.append(L"</span>");
+	}
+	void AppendTermSpanMouseoverAttribute(wstring& out, unsigned int Id)
+	{
+		out.append(L"lwtmover('lwt");
+		out.append(to_wstring(Id));
+		out.append(L"', event, this);");
 	}
 	void AppendJavascript(IHTMLDocument2* pDoc)
 	{
@@ -1847,36 +1773,74 @@ private:
 		EnsureRecordEntryForEachWord(cWord);
 		return cache->find(wWord);
 	}
-	/*
-		Function ParseTextNode_GetReplacementNode
-
-		This function is heavily interrelated with ParseTextNode, in that together they manage reference counts in a non-independent way
-
-		Return value:
-			--(on error): returns nullptr
-			--(otherwise): pointer to node to replace
-		Exit conditions:
-			--the pText that came in was released
-			--If return is nullptr, no new pText has been obtained
-			--If return is non-nullptr, a new Ptext had been obtain if bFurtherText, otherwise one has ~not~ been obtained
-	*/
-	wstring GetText_Helper__ParseTextNode_AllAtOnce3(IHTMLDOMTextNode* pText)
+	void MineTextNodeForWords_InsertPlaceHolders(IHTMLDOMTextNode* pText, IHTMLDocument2* pDoc, shared_ptr<vector<wstring>>& sp_vWords)
 	{
-		wstring wText;
-		_bstr_t bText;
-		pText->get_data(bText.GetAddress());
-		if (!bText.length())
-			return wText;
+		if (!pText || !pDoc)
+			return;
 
-		wText = bText;
-		return wText;
+		wstring wText = GetTextNodeText(pText);
+		if (wText.empty())
+			return;
+
+		wstring wOuterHTML;
+		unsigned int lastPosition = 0;
+		unsigned int numWordsAtStart = sp_vWords->size();
+
+		wstring regPtn = L"[" + WordChars + L"]";
+		if (bWithSpaces)
+			regPtn.append(L"+");
+
+		wregex wrgx(regPtn, regex_constants::ECMAScript);
+		wregex_iterator regit(wText.begin(), wText.end(), wrgx);
+		wregex_iterator rend;
+
+		while (regit != rend)
+		{
+			if (regit->position() != lastPosition)
+			{
+				wstring skipped = wstring(wText.begin()+lastPosition, wText.begin()+regit->position());
+				wOuterHTML.append(skipped);
+				if (!bWithSpaces || skipped.find_first_not_of(L' ') != wstring::npos)
+				{
+					sp_vWords->push_back(wTermDivider);
+					AppendTermSpan(wOuterHTML, L"", L"", L"TermDivide", 0);
+				}
+			}
+			lastPosition = regit->position() + regit->length();
+			sp_vWords->push_back(chaj::str::wstring_tolower(regit->str()));
+			AppendTermSpan(wOuterHTML, regit->str(), sp_vWords->back(), L"Unloaded", 0);
+			regit++;
+		}
+		
+		if (sp_vWords->size() == numWordsAtStart)
+			return; // no words found, just return
+
+		sp_vWords->push_back(wTermDivider);
+		AppendTermSpan(wOuterHTML, L"", L"", L"TermDivide", 0);
+
+		if (lastPosition != wText.size()) // non-word text beyond last found word
+			wOuterHTML.append(wText.begin()+lastPosition, wText.end()); // append all remaining
+
+		// transform text node
+		SmartCom<IHTMLElement> pNew = CreateElement(pDoc, L"span");
+		if (!pNew)
+			return;
+		SmartCom<IHTMLDOMNode> pNewNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pNew);
+		if (!pNewNode)
+			return;
+		SmartCom<IHTMLDOMNode> pTextNode = GetAlternateInterface<IHTMLDOMTextNode,IHTMLDOMNode>(pText);
+		if (!pTextNode)
+			return;
+		HRESULT hr = pTextNode->replaceNode(pNewNode, pTextNode);
+		if (SUCCEEDED(hr))
+			HRESULT hr = SetElementOuterHTML(pNew, wOuterHTML);
 	}
 	void ParseTextNode_AllAtOnce(IHTMLDOMTextNode* pText, IHTMLDocument2* pDoc, unordered_set<wstring>& usetPageTerms)
 	{
 		if (!pText || !pDoc)
 			return;
 
-		wstring wText = GetText_Helper__ParseTextNode_AllAtOnce3(pText);
+		wstring wText = GetTextNodeText(pText);
 		if (wText.empty())
 			return;
 
@@ -1975,7 +1939,7 @@ private:
 			{
 				tuple<wstring, TermRecord, int> current = mwTerms.top(); mwTerms.pop();
 
-				AppendMWSpan(wOuterHTML, get<0>(current), &get<1>(current), to_wstring(get<2>(current)));
+				AppendMultiWordSpan(wOuterHTML, get<0>(current), &get<1>(current), to_wstring(get<2>(current)));
 			}
 
 			cache_cit it = cache->cfind(firstWord);
@@ -2006,21 +1970,35 @@ private:
 		if (!pDoc)
 			return;
 
-		for (unsigned int i = 0; i < sp_vWords->size(); i += MAX_MYSQL_INLIST_LEN)
+		list<wstring> cWords;			// will hold all words, then have tracked terms removed
+		wstring	wInList;				// list of words passed to sql query
+		wstring wQuery;					// the sql querystring
+		wstring wCanonicalTerm;			// a result's standard form
+
+		for (unsigned int i = 0, j = 0, listLength = 0; i < (*sp_vWords).size(); i += j)
 		{
-			wstring	wInList;
+			// this check happens about once for each MAX_MYSQL_INLIST_LEN words on page
+			if (bShuttingDown)
+				return;
 
 			// create buffer of uncached terms
-			for (int j = 0; j < MAX_MYSQL_INLIST_LEN && i+j < sp_vWords->size(); ++j)
+			wInList.clear();
+			for (listLength = 0, j = 0; listLength < MAX_MYSQL_INLIST_LEN && i+j < (*sp_vWords).size(); ++j)
 			{
 				wstring wRoot = (*sp_vWords)[i+j];
+				if (wRoot == wTermDivider)
+					continue;
+
 				wstring wTerm = wRoot;
-				for (unsigned int k = 1; k <= 8 && i+j+k < (*sp_vWords).size(); ++k)
+				for (unsigned int k = 1; k <= LWT_MAX_MWTERM_LENGTH-1 && i+j+k < (*sp_vWords).size(); ++k)
 				{
+					wstring wPiece = (*sp_vWords)[i+j+k];
+					if (wPiece == wTermDivider)
+						break;
+
 					if (this->bWithSpaces)
 						wTerm += L" ";
-
-					wTerm += (*sp_vWords)[i+j+k];
+					wTerm += wPiece;
 
 					if (!wInList.empty())
 						wInList.append(L",");
@@ -2028,13 +2006,15 @@ private:
 					wInList.append(L"'");
 					wInList.append(EscapeSQLQueryValue(wTerm));
 					wInList.append(L"'");
+
+					++listLength;
 				}
 			}
 
 			// cache uncached tracked terms
 			if (!wInList.empty())
 			{
-				wstring wQuery;
+				wQuery.clear();
 				wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
 				wQuery.append(wTableSetPrefix);
 				wQuery.append(L"words where WoLgID = ");
@@ -2047,20 +2027,17 @@ private:
 				DoExecuteDirect(_T("1612isjdlfij"), wQuery);
 				while (tStmt.fetch_next())
 				{
-					wstring wLC = tStmt.field(1).as_string();
+					wCanonicalTerm = tStmt.field(1).as_string();
 					TermRecord rec(tStmt.field(2).as_string());
 					rec.wRomanization = tStmt.field(3).as_string();
 					rec.wTranslation = tStmt.field(4).as_string();
-					cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
-					UpdateCacheMWFragments(wLC);
+					cache->insert(make_pair(wCanonicalTerm, rec));
+					UpdateCacheMWFragments(wCanonicalTerm);
 				}
 				tStmt.free_results();
 				LeaveCriticalSection(&CS_UseDBConn);
 			}
 			// at this point all terms in list that are tracked are cached
-
-			if (bShuttingDown)
-				return;
 		}
 	}
 	void Helper_Notify_Thread_CachePageWords(bool* pbHeadStartComplete, condition_variable* p_cv)
@@ -2072,9 +2049,9 @@ private:
 		}
 		p_cv->notify_all();
 	}
-	void Thread_CachePageWords(LPSTREAM pDocStream, shared_ptr<vector<wstring>> sp_vWords, condition_variable*  p_cv, bool* pbHeadStartComplete)
+	void Thread_CachePageWords(LPSTREAM pDocStream, shared_ptr<vector<wstring>> sp_vWords)
 	{
-		if (!pDocStream || !sp_vWords)
+		if (!pDocStream || !sp_vWords || (*sp_vWords).empty())
 			return;
 
 		const int MAX_MYSQL_INLIST_LEN = 500;
@@ -2083,76 +2060,77 @@ private:
 		if (!pDoc)
 			return;
 
-		if ((*sp_vWords).size() == 0)
+
+		list<wstring> cWords;			// will hold all words, then have tracked terms removed
+		wstring	wInList;				// list of words passed to sql query
+		wstring wQuery;					// the sql querystring
+		wstring wCanonicalTerm;			// a result's standard form
+
+		for (unsigned int i = 0, j = 0, listLength = 0; i < (*sp_vWords).size(); i += j)
 		{
-			Helper_Notify_Thread_CachePageWords(pbHeadStartComplete, p_cv);
-		}
-		else
-		{
-			for (unsigned int i = 0; i < (*sp_vWords).size(); i += MAX_MYSQL_INLIST_LEN)
+			// this check happens about once for each MAX_MYSQL_INLIST_LEN words on page
+			if (bShuttingDown)
+				return;
+
+			wInList.clear();
+			cWords.clear();
+
+			// create list of uncached terms
+			for (j = 0, listLength = 0; listLength < MAX_MYSQL_INLIST_LEN && i+j < (*sp_vWords).size(); ++j)
 			{
-				list<wstring> cWords;
-				wstring	wInList;
+				if ((*sp_vWords)[i+j] == wTermDivider)
+					continue;
 
-				// create buffer of uncached terms
-				for (unsigned int j = 0; j < MAX_MYSQL_INLIST_LEN && i+j < (*sp_vWords).size(); ++j)
+				cache_it it = cache->find((*sp_vWords)[i+j]);
+				if (TermNotCached(it))
 				{
-					cache_it it = cache->find((*sp_vWords)[i+j]);
-					if (TermNotCached(it))
-					{
-						cWords.push_back((*sp_vWords)[i+j]);
-						if (!wInList.empty())
-							wInList.append(L",");
+					cWords.push_back((*sp_vWords)[i+j]);
+					if (!wInList.empty())
+						wInList.append(L",");
 
-						wInList.append(L"'");
-						wInList.append(EscapeSQLQueryValue((*sp_vWords)[i+j]));
-						wInList.append(L"'");
-					}
+					wInList.append(L"'");
+					wInList.append(EscapeSQLQueryValue(cWords.back()));
+					wInList.append(L"'");
+
+					++listLength;
 				}
-
-				// cache uncached tracked terms
-				if (!wInList.empty())
-				{
-					wstring wQuery;
-					wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
-					wQuery.append(wTableSetPrefix);
-					wQuery.append(L"words where WoLgID = ");
-					wQuery.append(wLgID);
-					wQuery.append(L" AND WoTextLC in (");
-					wQuery.append(wInList);
-					wQuery.append(L")");
-
-					EnterCriticalSection(&CS_UseDBConn);
-					DoExecuteDirect(_T("1612isjdlfij"), wQuery);
-					while (tStmt.fetch_next())
-					{
-						wstring wLC = tStmt.field(1).as_string();
-						TermRecord rec(tStmt.field(2).as_string());
-						rec.wRomanization = tStmt.field(3).as_string();
-						rec.wTranslation = tStmt.field(4).as_string();
-						cache->insert(unordered_map<wstring,TermRecord>::value_type(wLC, rec));
-						cWords.remove(wLC);
-					}
-					tStmt.free_results();
-					LeaveCriticalSection(&CS_UseDBConn);
-				}
-				// at this point all terms in list that are tracked are cached
-
-				for (wstring& word : cWords)
-					cache->insert(unordered_map<wstring,TermRecord>::value_type(word, TermRecord(L"0")));
-
-				if (i == 0) // we're in the first loop, having cahced the first block of words
-				{
-					Helper_Notify_Thread_CachePageWords(pbHeadStartComplete, p_cv);
-				}
-
-				if (bShuttingDown)
-					return;
 			}
+
+			// cache uncached tracked terms
+			if (!wInList.empty())
+			{
+				wQuery.clear();
+				wQuery.append(L"select WoTextLC, WoStatus, COALESCE(WoRomanization, ''), COALESCE(WoTranslation, '') from ");
+				wQuery.append(wTableSetPrefix);
+				wQuery.append(L"words where WoLgID = ");
+				wQuery.append(wLgID);
+				wQuery.append(L" AND WoTextLC in (");
+				wQuery.append(wInList);
+				wQuery.append(L")");
+
+				EnterCriticalSection(&CS_UseDBConn);
+				DoExecuteDirect(_T("1612isjdlfij"), wQuery);
+				while (tStmt.fetch_next())
+				{
+					wCanonicalTerm = tStmt.field(1).as_string();
+					TermRecord rec(tStmt.field(2).as_string());
+					rec.wRomanization = tStmt.field(3).as_string();
+					rec.wTranslation = tStmt.field(4).as_string();
+					cache->insert(make_pair(wCanonicalTerm, rec));
+					cWords.remove(wCanonicalTerm);
+				}
+				tStmt.free_results();
+				LeaveCriticalSection(&CS_UseDBConn);
+			}
+			// at this point all terms in list that are tracked are cached
+
+			for (wstring& word : cWords)
+				cache->insert(make_pair(word, TermRecord(L"0")));
 		}
 	}
-	void GetPageWords(IHTMLDocument2* pDoc, vector<wstring>& vWords)
+	void Thread_GetPageWords(LPSTREAM pDocStream, shared_ptr<vector<wstring>> sp_vWords)
 	{
+		SmartCom<IHTMLDocument2> pDoc = GetInterfaceFromStream<IHTMLDocument2>(pDocStream);
 		if (!pDoc)
 			return;
 
@@ -2161,10 +2139,11 @@ private:
 			return;
 
 		IDispatch* pNextNodeDisp = nullptr;
+		IDispatch* pAfterTextDisp = nullptr;
 		IHTMLDOMNode* pNextNode = nullptr;
 		IHTMLElement* pElement = nullptr;
 		IHTMLDOMTextNode* pText = nullptr;
-		bool bAwaitElement = false;
+		bool bAwaitNextElement = false;
 		HRESULT hr;
 
 		// loop regex setup
@@ -2175,55 +2154,50 @@ private:
 		wregex_iterator rend;
 		
 		// this while loop manages reference counts manually
+		long lngType;
 		while(SUCCEEDED(pDocTree->nextNode(&pNextNodeDisp)) && pNextNodeDisp)
 		{
-			long lngType;
-			pNextNode = chaj::COM::GetAlternateInterface<IDispatch,IHTMLDOMNode>(pNextNodeDisp);
+			pNextNode = GetAlternateInterface<IDispatch,IHTMLDOMNode>(pNextNodeDisp);
 			if (pNextNode)
 			{
 				hr = pNextNode->get_nodeType(&lngType);
 				if (SUCCEEDED(hr))
 				{
-					if (lngType == chaj::DOM::NODE_TYPE_ELEMENT)
+					if (lngType == NODE_TYPE_ELEMENT)
 					{
-						bAwaitElement = false;
-						pElement = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLElement>(pNextNode);
+						bAwaitNextElement = false;
+						pElement = GetAlternateInterface<IHTMLDOMNode,IHTMLElement>(pNextNode);
 						if (pElement)
 						{
-							wstring wTag = chaj::DOM::GetTagFromElement(pElement);
-							if (wcsicmp(wTag.c_str(), L"script") == 0 || \
-								wcsicmp(wTag.c_str(), L"style") == 0 || \
-								wcsicmp(wTag.c_str(), L"textarea") == 0 || \
-								wcsicmp(wTag.c_str(), L"iframe") == 0 || \
-								wcsicmp(wTag.c_str(), L"noframe") == 0)
+							wstring wTag = GetTagFromElement(pElement);
+							chaj::str::wstring_tolower(wTag);
+							if (wTag == L"script" ||
+								wTag == L"style" ||
+								wTag == L"textarea" ||
+								wTag == L"iframe" ||
+								wTag == L"noframe")
 							{
-								bAwaitElement = true;
+								bAwaitNextElement = true;
 							}
+							pElement->Release();
 						}
-						pElement->Release();
 					}
-					else if (!bAwaitElement && lngType == chaj::DOM::NODE_TYPE_TEXT)
+					else if (!bAwaitNextElement && lngType == NODE_TYPE_TEXT)
 					{
-						pText = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNextNode);
+						dhr(pDocTree->nextNode(&pAfterTextDisp)); // grab the node that follows this text node as a bookmark
+						pText = GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNextNode);
 						if (pText)
 						{
-							_bstr_t bText;
-							wstring wText;
-							pText->get_data(bText.GetAddress());
-							if (bText.length())
-								wText = bText;
-
-							if (!wText.empty())
-							{
-								wregex_iterator regit(wText.begin(), wText.end(), wrgx);
-								while (regit != rend)
-								{
-									vWords.push_back(regit->str());
-									++regit;
-								}
-							}
+							MineTextNodeForWords_InsertPlaceHolders(pText, pDoc, sp_vWords);
+							pText->Release();
 						}
-						pText->Release();
+						if (pAfterTextDisp) // kinda hackish, but take whatever node now precedes the bookmark so loop will increment back to bookmark
+						{
+							pAfterTextDisp->Release();
+							hr = pDocTree->previousNode(&pAfterTextDisp);
+							if (SUCCEEDED(hr) && pAfterTextDisp)
+								pAfterTextDisp->Release();
+						}
 					}
 				}
 				pNextNode->Release();
@@ -2237,25 +2211,23 @@ private:
 	{
 		return GetInterfaceFromStream<IWebBrowser2>(pBrowserStream);
 	}
-	bool StartWordCache_Helper__Thread_OnPageFullyLoaded(IHTMLDocument2* pDoc, shared_ptr<vector<wstring>>& sp_vWords, condition_variable& cv, bool& bHeadStartComplete)
+	bool StartWordCache_Helper__Thread_OnPageFullyLoaded(thread*& SWordThread, IHTMLDocument2* pDoc, shared_ptr<vector<wstring>>& sp_vWords)
 	{
-		LPSTREAM pDocStream = nullptr;
-		HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IHTMLDocument2, pDoc, &pDocStream);
-		if (SUCCEEDED(hr) && pDocStream)
+		LPSTREAM pDocStream = GetInterfaceStream(IID_IHTMLDocument2, pDoc);
+		if (pDocStream)
 		{
-			cpThreads.push_back(new std::thread(&LwtBho::Thread_CachePageWords, this, pDocStream, sp_vWords, &cv, &bHeadStartComplete));
+			SWordThread = new std::thread(&LwtBho::Thread_CachePageWords, this, pDocStream, sp_vWords);
 			return true;
 		}
 		else
 			return false;
 	}
-	bool StartMWCache_Helper__Thread_OnPageFullyLoaded(IHTMLDocument2* pDoc, shared_ptr<vector<wstring>>& sp_vWords)
+	bool StartMWCache_Helper__Thread_OnPageFullyLoaded(thread*& MWordThread, IHTMLDocument2* pDoc, shared_ptr<vector<wstring>>& sp_vWords)
 	{
-		LPSTREAM pDocStream = nullptr;
-		HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IHTMLDocument2, pDoc, &pDocStream);
-		if (SUCCEEDED(hr) && pDocStream)
+		LPSTREAM pDocStream = GetInterfaceStream(IID_IHTMLDocument2, pDoc);
+		if (pDocStream)
 		{
-			cpThreads.push_back(new std::thread(&LwtBho::Thread_CachePageMWTerms, this, pDocStream, sp_vWords));
+			MWordThread = new std::thread(&LwtBho::Thread_CachePageMWTerms, this, pDocStream, sp_vWords);
 			return true;
 		}
 		else
@@ -2263,15 +2235,20 @@ private:
 	}
 	bool StartPageHighlightThread_Helper__Thread_OnPageFullyLoaded(IHTMLDocument2* pDoc)
 	{
-		LPSTREAM pDocStream = nullptr;
-		HRESULT hr = CoMarshalInterThreadInterfaceInStream(IID_IHTMLDocument2, pDoc, &pDocStream);
-		if (SUCCEEDED(hr) && pDocStream)
+		LPSTREAM pDocStream = GetInterfaceStream(IID_IHTMLDocument2, pDoc);
+		if (pDocStream)
 		{
 			cpThreads.push_back(new std::thread(&LwtBho::Thread_HighlightPage, this, pDocStream));
 			return true;
 		}
 		else
 			return false;
+	}
+	void StartPageMining_Helper__Thread_OnPageFullyLoaded(thread*& miner, IHTMLDocument2* pDoc, shared_ptr<vector<wstring>>& sp_vWords)
+	{
+		LPSTREAM pDocStream = GetInterfaceStream(IID_IHTMLDocument2, pDoc);
+		if (pDocStream)
+			miner = new std::thread(&LwtBho::Thread_GetPageWords, this, pDocStream, sp_vWords);
 	}
 	void Thread_OnPageFullyLoaded(LPSTREAM pBrowserStream)
 	{
@@ -2293,33 +2270,29 @@ private:
 		SmartCom<IHTMLElement> pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc);
 		if (!pSetupLink) // TODO: add an error log message
 			return;
-
 		dhr(pSetupLink->click());
 
-		// mutex and conditional variable to signal a batch of cached words
-		std::mutex m;
-		std::condition_variable cv;
-		bool bHeadStartComplete = false;
-
 		vector<wstring> vWords;
-		GetPageWords(pDoc, vWords);
-
 		shared_ptr<vector<wstring>> sp_vWords = make_shared<vector<wstring>>(vWords);
 
-		// start threads
-		StartMWCache_Helper__Thread_OnPageFullyLoaded(pDoc, sp_vWords);
-		StartWordCache_Helper__Thread_OnPageFullyLoaded(pDoc, sp_vWords, cv, bHeadStartComplete);
-		
-		while (!bHeadStartComplete)
-		{
-			mutex n;
-			unique_lock<mutex> lk(n);
-			cv.wait(lk);
-			if (bShuttingDown)
-				return;
-		}
+		thread* miner = nullptr;
+		StartPageMining_Helper__Thread_OnPageFullyLoaded(miner, pDoc, sp_vWords);
+		if (miner && miner->joinable())
+			miner->join();
 
-		// start thread after above notification
+		// start caching threads
+		thread* MWordThread = nullptr;
+		thread* SWordThread = nullptr;
+		StartMWCache_Helper__Thread_OnPageFullyLoaded(MWordThread, pDoc, sp_vWords);
+		StartWordCache_Helper__Thread_OnPageFullyLoaded(SWordThread, pDoc, sp_vWords);
+
+		// wait for caching to complete
+		if (MWordThread && MWordThread->joinable())
+			MWordThread->join();
+		if (SWordThread && SWordThread->joinable())
+			SWordThread->join();
+
+		// highlight page with cached terms
 		StartPageHighlightThread_Helper__Thread_OnPageFullyLoaded(pDoc);
 	}
 	void Thread_HighlightPage(LPSTREAM pDocStream)
@@ -2329,79 +2302,100 @@ private:
 
 		unordered_set<wstring> usetPageTerms; // used to track which terms have had an html hidden div record appended
 
-		SmartCom<IHTMLDocument2> pDoc;
-		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, static_cast<LPVOID*>(pDoc));
-		
-		if (FAILED(hr) || !pDoc)
+		SmartCom<IHTMLDocument2> pDoc = GetInterfaceFromStream<IHTMLDocument2>(pDocStream);
+		if (!pDoc)
 			return;
 
-		SmartCom<IDOMTreeWalker> pDocTree = GetDocumentTree(pDoc);
-		if (!pDocTree)
+		SmartCom<IHTMLElement> pBody = GetBodyFromDoc(pDoc);
+		if (!pBody)
 			return;
 
-		IDispatch* pNextNodeDisp = nullptr;
-		IDispatch* pAfterTextDisp = nullptr;
-		IHTMLDOMNode* pNextNode = nullptr;
-		IHTMLElement* pElement = nullptr;
-		IHTMLDOMTextNode* pText = nullptr;
-		bool bAwaitElement = false;
-		
-		// this while loop manages reference counts manually
-		while(SUCCEEDED(pDocTree->nextNode(&pNextNodeDisp)) && pNextNodeDisp)
+		SmartCom<IHTMLElementCollection> pCollection = GetAllElementsFromDoc(pDoc);
+		if (!pCollection)
+			return;
+
+		long lLength = 0;
+		HRESULT hr = pCollection->get_length(&lLength);
+		if (FAILED(hr) || lLength == 0)
+			return;
+
+		SmartCom<IDispatch> pDispElem;
+		SmartCom<IHTMLElement> pSpan;
+		VARIANT vIndex; VariantInit(&vIndex); vIndex.vt = VT_I4; 
+		VARIANT vSubIndex; VariantInit(&vSubIndex); vSubIndex.vt = VT_I4; vSubIndex.lVal = 0;
+		VARIANT varNewClassValue; VariantInit(&varNewClassValue); varNewClassValue.vt = VT_BSTR;
+
+		vector<vector<IHTMLElement*>> lwtSpans; // to hold all highlighted words
+		vector<IHTMLElement*> lwtRun; // words not separated by non-word parts
+		vector<vector<wstring>> lwtTome;
+		vector<wstring> lwtPhrase;
+		for (long i = 0; i < lLength; ++i)
 		{
-			long lngType;
-			pNextNode = chaj::COM::GetAlternateInterface<IDispatch,IHTMLDOMNode>(pNextNodeDisp);
-			if (pNextNode)
+			vIndex.lVal = i;
+			hr = pCollection->item(vIndex, vSubIndex, (IDispatch**)pDispElem);
+			if (FAILED(hr) || !pDispElem)
+				continue;
+
+			pSpan = GetElementFromDisp(pDispElem);
+			if (!pSpan)
+				continue;
+
+			if (GetElementClass(pSpan) == L"lwtStatUnloaded")
 			{
-				hr = pNextNode->get_nodeType(&lngType);
-				if (SUCCEEDED(hr))
+				lwtPhrase.push_back(GetAttributeValue(pSpan, L"lwtTerm"));
+				lwtRun.push_back(pSpan.Relinquish());
+			}
+			else if (GetElementClass(pSpan) == L"lwtStatTermDivide")
+			{
+				lwtSpans.push_back(lwtRun);
+				lwtRun.clear();
+				lwtTome.push_back(lwtPhrase);
+				lwtPhrase.clear();
+			}
+		}
+
+		wstring multiWordTerm;
+		stack<TermEntry> found;
+		for (unsigned int k = 0; k < lwtTome.size(); ++k)
+		{
+			for (unsigned int i = 0; i < lwtTome[k].size(); ++i)
+			{
+				multiWordTerm = lwtTome[k][i];
+				for (unsigned int j = 1; i+j < LWT_MAX_MWTERM_LENGTH - 1 && i+j < lwtTome[k].size(); ++j)
 				{
-					if (lngType == chaj::DOM::NODE_TYPE_ELEMENT)
+					if (bWithSpaces)
+						multiWordTerm += L" ";
+					multiWordTerm += lwtTome[k][i+j];
+					cache_it iter = cache->find(multiWordTerm);
+					if (iter != cache->end())
+						found.push(make_pair(multiWordTerm, iter->second));
+				}
+				while (found.size())
+				{
+					TermEntry termEntry = found.top(); found.pop();
+					wstring wOuterHtml;
+					AppendMultiWordSpan(wOuterHtml, termEntry.first, &(termEntry.second),
+						to_wstring(WordsInTerm(termEntry.first)));
+					AppendHTMLBeforeBegin(wOuterHtml, lwtSpans[k][i]);
+					if (usetPageTerms.find(termEntry.first) == usetPageTerms.end())
 					{
-						bAwaitElement = false;
-						pElement = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLElement>(pNextNode);
-						if (pElement)
-						{
-							wstring wTag = chaj::DOM::GetTagFromElement(pElement);
-							if (wcsicmp(wTag.c_str(), L"span") == 0)
-							{
-								if (!GetAttributeValue(pElement, L"lwtTerm").empty())
-									bAwaitElement = true;
-							}
-							else if (wcsicmp(wTag.c_str(), L"script") == 0 || \
-								wcsicmp(wTag.c_str(), L"style") == 0 || \
-								wcsicmp(wTag.c_str(), L"textarea") == 0 || \
-								wcsicmp(wTag.c_str(), L"iframe") == 0 || \
-								wcsicmp(wTag.c_str(), L"noframe") == 0)
-							{
-								bAwaitElement = true;
-							}
-						}
-						pElement->Release();
+						AppendTermDivRec(pBody, termEntry.first, termEntry.second);
+						usetPageTerms.insert(termEntry.first);
 					}
-					else if (!bAwaitElement && lngType == chaj::DOM::NODE_TYPE_TEXT)
+				}
+				cache_it iter = cache->find(lwtTome[k][i]);
+				if (iter != cache->end())
+				{
+					wstring wOuterHtml;
+					AppendSoloWordSpan(wOuterHtml, GetElementInnerText(lwtSpans[k][i]), iter->first, &iter->second);
+					HRESULT hr = SetElementOuterHTML(lwtSpans[k][i], wOuterHtml);
+					if (usetPageTerms.find(iter->first) == usetPageTerms.end())
 					{
-						dhr(pDocTree->nextNode(&pAfterTextDisp)); // grab the node that follows this text node as a bookmark
-						pText = chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNextNode);
-						if (pText)
-						{
-							ParseTextNode_AllAtOnce(pText, pDoc, usetPageTerms);
-							pText->Release();
-						}
-						if (pAfterTextDisp) // kinda hackish, but take whatever node now precedes the bookmark so loop will increment back to bookmark
-						{
-							pAfterTextDisp->Release();
-							hr = pDocTree->previousNode(&pAfterTextDisp);
-							if (SUCCEEDED(hr) && pAfterTextDisp)
-								pAfterTextDisp->Release();
-						}
+						AppendTermDivRec(pBody, iter->first, iter->second);
+						usetPageTerms.insert(iter->first);
 					}
 				}
 			}
-			pNextNode->Release();
-			pNextNodeDisp->Release();
-			if (bShuttingDown)
-				break;
 		}
 	}
 	static void DeleteHandles()
@@ -3178,7 +3172,7 @@ inline LwtBho::~LwtBho()
 	WaitForThreadsToTerminate();
 	DeleteCriticalSections();
 
-	for (auto cacheEntry : cacheMap)
+	for (auto& cacheEntry : cacheMap)
 		delete cacheEntry.second;
 }
 

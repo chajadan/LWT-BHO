@@ -33,7 +33,11 @@ namespace chaj
 		std::wstring GetAttributeValue(IHTMLElement* pElement, const std::wstring& wstrAttribute, long lFlags = 0);
 		HRESULT SetAttributeValue(IHTMLElement* pElement, const std::wstring& wstrAttribute, const std::wstring& wstrAttValue, long lFlags = 0);
 		HRESULT SetElementInnerText(IHTMLElement* pElement, const std::wstring& wstrInnerText);
+		std::wstring GetElementInnerText(IHTMLElement* pElement);
 		HRESULT SetElementOuterHTML(IHTMLElement* pElement, const std::wstring& wstrOuterHTML);
+
+		// DOMNode functions
+		std::wstring GetTextNodeText(IHTMLDOMTextNode* pText);
 
 		// Get this from that funcs
 			// From Browser
@@ -45,6 +49,7 @@ namespace chaj
 		IHTMLBodyElement* GetBodyElementFromDoc(IHTMLDocument2* pDoc);
 		IHTMLTxtRange* GetBodyTxtRangeFromDoc(IHTMLDocument2* pDoc);
 		IHTMLElementCollection* GetAllElementsFromDoc(IHTMLDocument2* pDoc);
+		IHTMLElementCollection* GetAllFromDoc_ByTag(IHTMLDocument2* pDoc, std::wstring tag);
 		IHTMLEventObj* GetEventFromDoc(IHTMLDocument2* pDoc);
 		IHTMLElement* GetHeadFromDoc(IHTMLDocument2* pDoc);
 		IDocumentTraversal* GetDocTravFromDoc(IHTMLDocument2* pDoc);

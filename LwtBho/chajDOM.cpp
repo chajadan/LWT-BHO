@@ -3,6 +3,7 @@
 #include "comip.h"
 
 using namespace chaj::COM;
+using namespace std;
 
 namespace chaj
 {
@@ -92,6 +93,15 @@ HRESULT chaj::DOM::SetElementInnerText(IHTMLElement* pElement, const std::wstrin
 	SysFreeString(bstrOut);
 	return hr;
 }
+wstring chaj::DOM::GetElementInnerText(IHTMLElement* pElement)
+{
+	BSTR bInner;
+	HRESULT hr = pElement->get_innerHTML(&bInner);
+	if (FAILED(hr) || !SysStringLen(bInner))
+		return L"";
+	else
+		return bInner;
+}
 IHTMLElement* chaj::DOM::CreateElement(IHTMLDocument2* pDoc, const std::wstring& tag)
 {
 	SmartCom<IHTMLElement> pElement = nullptr;
@@ -127,6 +137,17 @@ std::wstring chaj::DOM::GetTagFromElement(IHTMLElement* pElement)
 		wTag = bstrTag;
 
 	return wTag;
+}
+wstring chaj::DOM::GetTextNodeText(IHTMLDOMTextNode* pText)
+{
+	wstring wText;
+	_bstr_t bText;
+	pText->get_data(bText.GetAddress());
+	if (!bText.length())
+		return wText;
+
+	wText = bText;
+	return wText;
 }
 IDOMTreeWalker* chaj::DOM::GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, long (*FilterFunc)(IDispatch*), long lShow)
 {
@@ -264,6 +285,29 @@ IHTMLElementCollection* chaj::DOM::GetAllElementsFromDoc(IHTMLDocument2* pDoc)
 	if (FAILED(hr))
 		iEC = nullptr;
 	return iEC;
+}
+IHTMLElementCollection* chaj::DOM::GetAllFromDoc_ByTag(IHTMLDocument2* pDoc, wstring tag)
+{
+	SmartCom<IHTMLElementCollection> pCollection;
+	HRESULT hr = pDoc->get_all(pCollection);
+	if (FAILED(hr) || !pCollection)
+		return nullptr;
+
+	SmartCom<IDispatch> pDisp;
+	VARIANT vTagName;
+	vTagName.vt = VT_BSTR;
+	_bstr_t bstrTagName(tag.c_str());
+	vTagName.bstrVal = bstrTagName.GetBSTR();
+	hr = pCollection->tags(vTagName, pDisp);
+	if (FAILED(hr) || !pDisp)
+		return nullptr;
+
+	SmartCom<IHTMLElementCollection> pByTag;
+	hr = pDisp->QueryInterface(IID_IHTMLElementCollection, (void**)pByTag);
+	if (FAILED(hr) || !pByTag)
+		return nullptr;
+
+	return pByTag.Relinquish();
 }
 IHTMLElement* chaj::DOM::GetElementFromDisp(IDispatch* pDispElement)
 {

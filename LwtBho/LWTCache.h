@@ -13,7 +13,7 @@ typedef std::unordered_map<wstring,TermRecord>::iterator cache_it;
 class LWTCache
 {
 public:
-	LWTCache(wstring wLgID = L"", wstring wTblPfx = L"") : _cur(0), _wLgID(wLgID), _wTblPfx(wTblPfx)
+	LWTCache(wstring wLgID = L"", wstring wTblPfx = L"") : _cur(1), _wLgID(wLgID), _wTblPfx(wTblPfx)
 	{
 		if (!InitializeCriticalSectionAndSpinCount(&CS_AddCacheEntry, 0x00000400))
 			TRACE(L"Cound not initialize critical section in LWTCache. 3850duhf\n");
