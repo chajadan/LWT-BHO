@@ -7,7 +7,9 @@ function lwtSetup()
 	window.onscroll = moveInfoOnScroll;
 	if (typeof(document.addEventListener) !== 'undefined' && typeof(document.addEventListener) === 'function')
 	{
-		document.addEventListener('onkeydown', lwtkeypress, false);
+
+		document.addEventListener('keydown', lwtkeypress, false);
+
 	}
 	else
 	{
@@ -173,10 +175,14 @@ function CloseAllDialogs()
 function lwtkeypress()
 {
 	if (document.getElementById('lwtlasthovered').getAttribute('lwtcursel') == '' || window.mwTermBegin != null)
+	{
 		return;
+	}
 	var e = window.event;
 	if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey)
+	{
 		return;
+	}
 	switch(e.keyCode)
 	{
 		case 49:
