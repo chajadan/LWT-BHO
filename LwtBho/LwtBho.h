@@ -2263,6 +2263,8 @@ private:
 		if (!pDoc)
 			return;
 
+		usetPageTerms.clear();
+
 		AppendCss(pDoc);
 		AppendHtmlBlocks(pDoc);
 		AppendJavascript(pDoc);
@@ -2299,8 +2301,6 @@ private:
 	{
 		if (!pDocStream)
 			return;
-
-		unordered_set<wstring> usetPageTerms; // used to track which terms have had an html hidden div record appended
 
 		SmartCom<IHTMLDocument2> pDoc = GetInterfaceFromStream<IHTMLDocument2>(pDocStream);
 		if (!pDoc)
@@ -2979,6 +2979,36 @@ private:
 		SmartCom<IHTMLDocument2> pDoc = GetDocumentFromBrowser(pBrowser);
 		if (!pDoc) return;
 
+		wstring wStatus = GetElementClass(pElement);
+		if (wStatus == L"lwtStatUnloaded")
+		{
+			SmartCom<IHTMLElement> pBody = GetBodyFromDoc(pDoc);
+			if (!pBody)
+				return;
+
+			wstring wCanonical = GetAttributeValue(pElement, L"lwtTerm");
+			if (wCanonical.empty())
+				return;
+
+			cache_it it = cache->find(wCanonical);
+			if (TermNotCached(it))
+				it = CacheTermAndReturnIt(wCanonical);
+
+			if (usetPageTerms.find(wCanonical) == usetPageTerms.end())
+			{
+				AppendTermDivRec(pBody, wCanonical, it->second);
+				usetPageTerms.insert(wCanonical);
+			}
+
+			wstring wOuterHtml;
+			AppendSoloWordSpan(wOuterHtml, GetElementInnerText(pElement), wCanonical, &it->second);
+			HRESULT hr = SetElementOuterHTML(pElement, wOuterHtml);
+			if (FAILED(hr))
+				return;
+
+			return;
+		}
+
 		wstring wActionReq = GetAttributeValue(pElement, L"lwtAction");
 		wstring wStatChange = GetAttributeValue(pElement, L"lwtstatchange");
 		wstring wActionValue;
@@ -3122,6 +3152,7 @@ private:
 	_bstr_t bstrUrl;
 	LWTCache* cache;
 	unordered_map<wstring, LWTCache*> cacheMap;
+	unordered_set<wstring> usetPageTerms; // used to track which terms have had an html hidden div record appended
 	vector<std::thread*> cpThreads;
 	int mNumDetachedThreads;
 	// wregex

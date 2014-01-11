@@ -289,26 +289,34 @@ function moveInfoOnScroll()
 
 function lwtmover(whichid, e, origin)
 {
+
 	removeSelection();
-	var divRec = document.getElementById(whichid);
-	if (divRec == null) {alert('could not locate term record');return;}
-	window.curDivRec = divRec;
-	var curTerm = divRec.getAttribute('lwtterm');
-	var curTermTrans = divRec.getAttribute('lwttrans');
-	var curTermRom = divRec.getAttribute('lwtrom');
-	window.popupTrans.textContent = curTermTrans;
-	window.popupRom.textContent = curTermRom;
-	if (curTermTrans.length + curTermRom.length > 0)
+	if (whichid == 'lwt0')
 	{
-		window.popupInfo.style.display = 'block';
+		origin.click();
 	}
-	var lastterm = window.lastHovered;
-	if (lastterm === null) {alert('could not loccated lasthovered field');}
-	lastterm.setAttribute('lwtterm', curTerm);
-	lastterm.setAttribute('lwtstat', divRec.getAttribute('lwtstat'));
-	setSelection(origin, lastterm, curTerm);
-	fixPageXY(e);
-	lwtshowinlinestat(e, curTerm, origin);
+	else
+	{
+		var divRec = document.getElementById(whichid);
+		if (divRec == null) {alert('could not locate term record');return;}
+		window.curDivRec = divRec;
+		var curTerm = divRec.getAttribute('lwtterm');
+		var curTermTrans = divRec.getAttribute('lwttrans');
+		var curTermRom = divRec.getAttribute('lwtrom');
+		window.popupTrans.textContent = curTermTrans;
+		window.popupRom.textContent = curTermRom;
+		if (curTermTrans.length + curTermRom.length > 0)
+		{
+			window.popupInfo.style.display = 'block';
+		}
+		var lastterm = window.lastHovered;
+		if (lastterm === null) {alert('could not loccated lasthovered field');}
+		lastterm.setAttribute('lwtterm', curTerm);
+		lastterm.setAttribute('lwtstat', divRec.getAttribute('lwtstat'));
+		setSelection(origin, lastterm, curTerm);
+		fixPageXY(e);
+		lwtshowinlinestat(e, curTerm, origin);
+	}
 }
 
 function lwtStartEdit()
