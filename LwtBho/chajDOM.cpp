@@ -94,11 +94,11 @@ HRESULT chaj::DOM::SetElementInnerText(IHTMLElement* pElement, const std::wstrin
 }
 IHTMLElement* chaj::DOM::CreateElement(IHTMLDocument2* pDoc, const std::wstring& tag)
 {
-	IHTMLElement* pElement = nullptr;
+	SmartCom<IHTMLElement> pElement = nullptr;
 	BSTR bstrTag = SysAllocString(tag.c_str());
-	pDoc->createElement(bstrTag, &pElement);
+	pDoc->createElement(bstrTag, pElement);
 	SysFreeString(bstrTag);
-	return pElement;
+	return pElement.Relinquish();
 }
 HRESULT chaj::DOM::SetElementOuterHTML(IHTMLElement* pElement, const std::wstring& wstrOuterHTML)
 {
@@ -109,11 +109,11 @@ HRESULT chaj::DOM::SetElementOuterHTML(IHTMLElement* pElement, const std::wstrin
 }
 IHTMLDOMTextNode* chaj::DOM::SplitTextNode(IHTMLDOMTextNode* pTextNode, long offset)
 {
-	IHTMLDOMNode* pNode = nullptr;
+	SmartCom<IHTMLDOMNode> pNode;
 
-	HRESULT hr = pTextNode->splitText(offset, &pNode); SmartCOMRelease scNode(pNode);
+	HRESULT hr = pTextNode->splitText(offset, pNode);
 	if (SUCCEEDED(hr) && pNode)
-		return chaj::COM::GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNode); // requestor must Release
+		return GetAlternateInterface<IHTMLDOMNode,IHTMLDOMTextNode>(pNode);
 	else
 		return nullptr;
 }
@@ -134,17 +134,16 @@ IDOMTreeWalker* chaj::DOM::GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispat
 	return GetTreeWalkerWithFilter(pDoc, pRootAt, &filter, lShow);
 }
 
-IDOMTreeWalker* chaj::DOM::GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* pFilter, long lShow)
+IDOMTreeWalker* chaj::DOM::GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* s_pFilter, long lShow)
 {
-	IDocumentTraversal* pDT =  GetDocTravFromDoc(pDoc);
-	if (pDT == nullptr)
+	SmartCom<IDocumentTraversal> pDT =  GetDocTravFromDoc(pDoc);
+	if (!pDT)
 		return nullptr;
 
-	IDOMTreeWalker* pTreeWalker = nullptr;
-	VARIANT varFilter; VariantInit(&varFilter); varFilter.vt = VT_DISPATCH; varFilter.pdispVal = pFilter;
-	pDT->createTreeWalker(pRootAt, lShow, &varFilter, VARIANT_TRUE, &pTreeWalker);
-	pDT->Release();
-	return pTreeWalker;
+	SmartCom<IDOMTreeWalker> pTreeWalker;
+	VARIANT varFilter; VariantInit(&varFilter); varFilter.vt = VT_DISPATCH; varFilter.pdispVal = s_pFilter;
+	pDT->createTreeWalker(pRootAt, lShow, &varFilter, VARIANT_TRUE, pTreeWalker);
+	return pTreeWalker.Relinquish();
 }
 
 IDOMNodeIterator* chaj::DOM::GetNodeIteratorWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, long (*FilterFunc)(IDispatch*), long lShow)
@@ -152,14 +151,14 @@ IDOMNodeIterator* chaj::DOM::GetNodeIteratorWithFilter(IHTMLDocument2* pDoc, IDi
 	DOMIteratorFilter filter(FilterFunc);
 	return GetNodeIteratorWithFilter(pDoc, pRootAt, &filter, lShow);
 }
-IDOMNodeIterator* chaj::DOM::GetNodeIteratorWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* pFilter, long lShow)
+IDOMNodeIterator* chaj::DOM::GetNodeIteratorWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* s_pFilter, long lShow)
 {
 	IDocumentTraversal* pDT =  GetDocTravFromDoc(pDoc);
 	if (pDT == nullptr)
 		return nullptr;
 
 	IDOMNodeIterator* pNodeIterator = nullptr;
-	VARIANT varFilter; VariantInit(&varFilter); varFilter.vt = VT_DISPATCH; varFilter.pdispVal = pFilter;
+	VARIANT varFilter; VariantInit(&varFilter); varFilter.vt = VT_DISPATCH; varFilter.pdispVal = s_pFilter;
 	pDT->createNodeIterator(pRootAt, lShow, &varFilter, VARIANT_TRUE, &pNodeIterator);
 	pDT->Release();
 	return pNodeIterator;
@@ -176,7 +175,7 @@ IDocumentTraversal* chaj::DOM::GetDocTravFromDoc(IHTMLDocument2* pDoc)
 IHTMLBodyElement* chaj::DOM::GetBodyElementFromDoc(IHTMLDocument2* pDoc)
 {
 	IHTMLBodyElement* res = nullptr;
-	IHTMLElement* pBody = GetBodyFromDoc(pDoc);
+	SmartCom<IHTMLElement> pBody = GetBodyFromDoc(pDoc);
 	if (pBody)
 	{
 		pBody->QueryInterface(IID_IHTMLBodyElement, reinterpret_cast<void**>(&res));
@@ -208,15 +207,15 @@ IHTMLElement* chaj::DOM::GetClickedElementFromEvent(IHTMLEventObj* pEvent)
 	pEvent->get_clientX(&x);
 	pEvent->get_clientY(&y);
 
-	IHTMLElement* pElement;
-	HRESULT hr = pEvent->get_srcElement(&pElement);
+	SmartCom<IHTMLElement> pElement;
+	HRESULT hr = pEvent->get_srcElement(pElement);
 	if (FAILED(hr))
 	{
 		TRACE(L"%s", L"Leaving GetClickedElementFromEvent with error result\n");
 		return nullptr;
 	}
 
-	return pElement;
+	return pElement.Relinquish();
 }
 HRESULT chaj::DOM::AppendStylesToDoc(const std::wstring& styles, IHTMLDocument2* pDoc)
 {
@@ -301,7 +300,6 @@ IHTMLEventObj* chaj::DOM::GetEventFromDoc(IHTMLDocument2* pDoc)
 	HRESULT hr = pDoc->get_parentWindow(&window);
 	if (FAILED(hr))
 	{
-		mb(L"get_parentWindow failed", L"2834hduufh");
 		TRACE(L"%s", L"Leaving GetEventFromDoc with error result\n");
 		return nullptr;
 	}
@@ -311,8 +309,6 @@ IHTMLEventObj* chaj::DOM::GetEventFromDoc(IHTMLDocument2* pDoc)
 	window->Release();
 	if (FAILED(hr))
 	{
-		mb(L"get_event failed", L"534shefhhfu");
-		pDoc->Release();
 		TRACE(L"%s", L"Leaving GetEventFromDoc with error result\n");
 		return nullptr;
 	}
@@ -342,30 +338,27 @@ IHTMLElement* chaj::DOM::GetHeadFromDoc(IHTMLDocument2* pDoc)
 {
 	if (!pDoc)
 		return nullptr;
-	IHTMLElementCollection* iEC = nullptr;
-	HRESULT hr = pDoc->get_all(&iEC);
-	if (FAILED(hr))
+	SmartCom<IHTMLElementCollection> iEC;
+	HRESULT hr = pDoc->get_all(iEC);
+	if (FAILED(hr) || !iEC)
 		return nullptr;
-	chaj::COM::SmartCOMRelease srEC(iEC);
 
 	BSTR bstrHead = SysAllocString(L"HEAD");
 	VARIANT varName; VariantInit(&varName); varName.vt = VT_BSTR; varName.bstrVal = bstrHead;
 	VARIANT varIndex; VariantInit(&varIndex); varIndex.vt = VT_I4; varIndex.lVal = 0;
-	IDispatch* pDispHead = nullptr;
-	hr = iEC->item(varName, varIndex, &pDispHead);
+	SmartCom<IDispatch> pDispHead;
+	hr = iEC->item(varName, varIndex, pDispHead);
 	if (FAILED(hr) || !pDispHead)
 	{
-		iEC->tags(varName, &pDispHead);
+		iEC->tags(varName, pDispHead);
 		if (!pDispHead)
 		{
 			VariantClear(&varName);
 			VariantClear(&varIndex);
 			return nullptr;
 		}
-		IHTMLElementCollection* iEC2 = chaj::COM::GetAlternateInterface<IDispatch,IHTMLElementCollection>(pDispHead);
-		pDispHead->Release();
-		iEC2->item(varIndex, varIndex, &pDispHead);
-		iEC2->Release();
+		SmartCom<IHTMLElementCollection> iEC2 = GetAlternateInterface<IDispatch,IHTMLElementCollection>(pDispHead);
+		iEC2->item(varIndex, varIndex, pDispHead);
 		if (!pDispHead)
 		{
 			VariantClear(&varName);
@@ -375,9 +368,8 @@ IHTMLElement* chaj::DOM::GetHeadFromDoc(IHTMLDocument2* pDoc)
 	}
 	VariantClear(&varIndex);
 	VariantClear(&varName);
-	chaj::COM::SmartCOMRelease srDispHead(pDispHead);
 
-	return chaj::COM::GetAlternateInterface<IDispatch,IHTMLElement>(pDispHead);
+	return GetAlternateInterface<IDispatch,IHTMLElement>(pDispHead);
 }
 HRESULT chaj::DOM::TxtRange_CollapseToEnd(IHTMLTxtRange* pRange)
 {
@@ -411,21 +403,13 @@ HRESULT chaj::DOM::TxtRange_MoveStartByChars(IHTMLTxtRange* pRange, long lngChar
 
 IHTMLDocument2* chaj::DOM::GetDocumentFromBrowser(IWebBrowser2* pBrowser)
 {
-	IDispatch* pDisp = nullptr;
-	HRESULT hr = pBrowser->get_Document(&pDisp); chaj::COM::SmartCOMRelease scDisp(pDisp);
+	SmartCom<IDispatch> pDisp;
+	HRESULT hr = pBrowser->get_Document(pDisp);
 	if(FAILED(hr) || !pDisp)
 	{
 		TRACE(L"err: 4645sihdf\n");
 		return nullptr;
 	}
 
-	IHTMLDocument2* pDoc = nullptr;
-	hr = pDisp->QueryInterface(IID_IHTMLDocument2, reinterpret_cast<void**>(&pDoc)); // user-Released
-	if (FAILED(hr) || !pDoc)
-	{
-		TRACE(L"err: 4654ihsf\n");
-		return nullptr;
-	}
-
-	return pDoc;
+	return GetAlternateInterface<IDispatch,IHTMLDocument2>(pDisp);
 }

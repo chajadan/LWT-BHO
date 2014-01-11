@@ -103,12 +103,63 @@ namespace chaj
 
 	namespace COM
 	{
+		template <typename T>
+		class SmartCom
+		{
+		public:
+			SmartCom() : mpUnknown(nullptr) {};
+			SmartCom(T* pUnknown, bool bAddRef = false) : mpUnknown(pUnknown) { if (bAddRef && mpUnknown) mpUnknown->AddRef();};
+			~SmartCom() { if (mpUnknown) mpUnknown->Release();};
+			T* Relinquish()
+			{
+				T* detached = mpUnknown;
+				mpUnknown = nullptr;
+				return detached;
+			}
+			SmartCom& operator=(const SmartCom<T>& copy)
+			{
+				return operator=(copy);
+			}
+			SmartCom& operator=(T* pUnknown)
+			{
+				if (mpUnknown)
+					mpUnknown->Release();
+				mpUnknown = pUnknown;
+				return *this;
+			}
+			T* operator->()
+			{
+				return mpUnknown;
+			}
+			operator T**()
+			{
+				return &mpUnknown;
+			}
+			operator T*()
+			{
+				return mpUnknown;
+			}
+			operator bool()
+			{
+				return mpUnknown != nullptr;
+			}
+			operator void**()
+			{
+				return reinterpret_cast<void**>(&mpUnknown);
+			}
+		private:
+			T* mpUnknown;
+		};
+
 		template<typename IFrom, typename ITo>
 		inline ITo* GetAlternateInterface(IFrom* pIn)
 		{
 			ITo* pOut = nullptr;
-			pIn->QueryInterface(__uuidof(ITo), reinterpret_cast<void**>(&pOut));
-			return pOut;
+			HRESULT hr = pIn->QueryInterface(__uuidof(ITo), reinterpret_cast<void**>(&pOut));
+			if (FAILED(hr) || !pOut)
+				return nullptr;
+			else
+				return pOut;
 		}
 
 		LPSTREAM GetInterfaceStream(const IID& riid, IUnknown* pInterface);
@@ -123,17 +174,6 @@ namespace chaj
 			else
 				return pInterface;
 		}
-
-		class SmartCOMRelease
-		{
-		public:
-			SmartCOMRelease(IUnknown* pUnknown, bool bAddRef = false) : pUnknown(pUnknown) { if (bAddRef && pUnknown) pUnknown->AddRef();};
-			~SmartCOMRelease() { if (pUnknown) pUnknown->Release();};
-		private:
-			SmartCOMRelease(const SmartCOMRelease&){};
-			SmartCOMRelease& operator=(const SmartCOMRelease&){};
-			IUnknown* pUnknown;
-		};
 	}
 }
 

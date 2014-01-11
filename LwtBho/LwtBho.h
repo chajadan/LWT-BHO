@@ -110,14 +110,7 @@ public:
 	}
 #pragma warning( pop )
 
-private:
-	void LoadCssFile()
-	{
-		HRSRC rc = ::FindResource(hInstance, MAKEINTRESOURCE(IDR_LWTCSS),
-			MAKEINTRESOURCE(CSS));
-		HGLOBAL rcData = ::LoadResource(hInstance, rc);
-		wCss = to_wstring(static_cast<const char*>(::LockResource(rcData)));
-	}
+private:	
 	void test3()
 	{
 		//DBDriver* dbdriv = conn.driver();
@@ -197,7 +190,7 @@ private:
 	}
 	void AddNewMWSpans(const wstring& wTerm, IHTMLDocument2* pDoc)
 	{
-		if (!wTerm.size())
+		if (!wTerm.size() || !pDoc)
 			return;
 
 		vector<wstring> vParts;
@@ -230,14 +223,16 @@ private:
 		unordered_map<wstring,TermRecord>::const_iterator it = cache->cfind(wTerm);
 		assert(it != cache->cend());
 
-		IHTMLElement* pBody = chaj::DOM::GetBodyFromDoc(pDoc);
-		assert(pBody);
-		AppendTermDivRec(pBody, wTerm, it->second);
-		pBody->Release();
+		SmartCom<IHTMLElement> scBody = GetBodyFromDoc(pDoc);
+		if (!scBody)
+			return;
+
+		AppendTermDivRec(scBody, wTerm, it->second);
 		AppendMWSpan(out, wTerm, &(it->second), to_wstring(uCount));
 
 		IHTMLTxtRange* pRange = GetBodyTxtRangeFromDoc(pDoc);
-		assert(pRange);
+		if (!pRange)
+			return;
 
 		bool bContinueAfterBreak = false;
 		
@@ -253,7 +248,7 @@ private:
 			hr = pRange->getBookmark(bMWBookmark.GetAddress());
 			assert(SUCCEEDED(hr));
 
-			IHTMLElement* pStartElem = nullptr;
+			SmartCom<IHTMLElement> pStartElem;
 
 			for (vector<wstring>::size_type i = 0; i < vParts.size(); ++i)
 			{
@@ -262,15 +257,16 @@ private:
 				assert(vBool == VARIANT_TRUE);
 
 				IHTMLElement* pMWPartSpan = nullptr;
-				hr = pRange->parentElement(&pMWPartSpan);
-				assert(SUCCEEDED(hr));
+				hr = pRange->parentElement(&pMWPartSpan); // release manually
+				if (FAILED(hr) || !pMWPartSpan)
+					return;
 
-				while (pMWPartSpan && !chaj::DOM::GetAttributeValue(pMWPartSpan, L"lwtterm").size())
+				while (pMWPartSpan && !GetAttributeValue(pMWPartSpan, L"lwtterm").size())
 				{
 					IHTMLElement* pHigherParent = nullptr;
-					hr = pMWPartSpan->get_parentElement(&pHigherParent);
-					assert(SUCCEEDED(hr));
-
+					hr = pMWPartSpan->get_parentElement(&pHigherParent); // release manually
+					if (FAILED(hr) || !pHigherParent)
+						return;
 					pMWPartSpan->Release();
 					pMWPartSpan = pHigherParent;
 				}
@@ -299,7 +295,6 @@ private:
 			{
 				hr = chaj::DOM::AppendHTMLBeforeBegin(out, pStartElem);
 				assert(SUCCEEDED(hr));
-				pStartElem->Release();
 
 				hr = chaj::DOM::TxtRange_CollapseToEnd(pRange);
 				assert(SUCCEEDED(hr));
@@ -307,8 +302,6 @@ private:
 				hr = chaj::DOM::TxtRange_RevertEnd(pRange);
 				assert(SUCCEEDED(hr));
 			}
-
-			if (pStartElem) pStartElem->Release();
 
 			if (bContinueAfterBreak)
 			{
@@ -1370,25 +1363,18 @@ private:
 	}
 	void ReceiveEvents(IHTMLDocument2* pDoc)
 	{
-		if (pDoc == nullptr)
+		if (!pDoc)
 			return;
 		
-		IConnectionPointContainer* aCPC;
-		HRESULT hr = pDoc->QueryInterface(IID_IConnectionPointContainer, (void**)&aCPC);
+		SmartCom<IConnectionPointContainer> aCPC;
+		HRESULT hr = pDoc->QueryInterface(IID_IConnectionPointContainer, (void**)aCPC);
 		if (FAILED(hr) || !aCPC)
-		{
-			mb(_T("FindDocCPC fail"), _T("260suhdhf"));
 			return;
-		}
 
-		IConnectionPoint* pHDEv2;
-		hr = aCPC->FindConnectionPoint(DIID_HTMLDocumentEvents, &pHDEv2);
-		aCPC->Release();
+		SmartCom<IConnectionPoint> pHDEv2;
+		hr = aCPC->FindConnectionPoint(DIID_HTMLDocumentEvents, pHDEv2);
 		if (FAILED(hr) || !pHDEv2)
-		{
-			mb(_T("Could not find a place to register a click listener"), _T("267sezhdu -- FindHDEv fail"));
 			return;
-		}
 
 		if (pHDEv != pHDEv2)
 		{
@@ -1398,10 +1384,8 @@ private:
 				pHDEv->Release();
 			}
 		
-			pHDEv = pHDEv2;
-			hr = pHDEv->Advise(reinterpret_cast<IDispatch*>(this), &Cookie_pHDev);
-			if (FAILED(hr))
-				mb("Error. Will not perceive mouse clicks on this page. Will try to annotate anyway.", "1000duwksm");
+			pHDEv = pHDEv2.Relinquish();
+			HRESULT hr = pHDEv->Advise(reinterpret_cast<IDispatch*>(this), &Cookie_pHDev);
 		}
 		else
 			pHDEv2->Release();
@@ -1448,37 +1432,35 @@ private:
 			return;
 		}
 
-		IHTMLElement* pHead = chaj::DOM::GetHeadFromDoc(pDoc); SmartCOMRelease scHead(pHead);
-		IHTMLElement* pBody = chaj::DOM::GetBodyFromDoc(pDoc); SmartCOMRelease scBody(pBody);
-		IHTMLElement* pScript = CreateElement(pDoc, L"script"); SmartCOMRelease scScript(pScript);
-		IHTMLDOMNode* pScriptNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pScript); SmartCOMRelease scScriptNode(pScriptNode);
+		SmartCom<IHTMLElement> pHead = chaj::DOM::GetHeadFromDoc(pDoc);
+		SmartCom<IHTMLElement> pBody = chaj::DOM::GetBodyFromDoc(pDoc);
+		SmartCom<IHTMLElement> pScript = CreateElement(pDoc, L"script");
+		SmartCom<IHTMLDOMNode> pScriptNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pScript);
 		if (!pHead || !pBody || !pScript || !pScriptNode)
 		{
 			TRACE(L"Unable to append lwt javascript properly.\n");
 			return;
 		}
 
-		chaj::DOM::SetAttributeValue(pScript, L"type", L"text/javascript");
-		chaj::DOM::SetElementInnerText(pScript, wJavascript);
+		SetAttributeValue(pScript, L"type", L"text/javascript");
+		SetElementInnerText(pScript, wJavascript);
 
 		bool DoHead = false;
 		if (DoHead)
 		{
-			IHTMLDOMNode* pHeadNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pHead); SmartCOMRelease scHeadNode(pHeadNode);
-			IHTMLDOMNode* pNewScriptNode;
-			HRESULT hr = pHeadNode->appendChild(pScriptNode, &pNewScriptNode);
+			SmartCom<IHTMLDOMNode> pHeadNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pHead);
+			SmartCom<IHTMLDOMNode> pNewScriptNode;
+			HRESULT hr = pHeadNode->appendChild(pScriptNode, pNewScriptNode);
 			if (FAILED(hr))
 				TRACE(L"Unable to append javacript child. 23328ijf\n");
-			pNewScriptNode->Release();
 		}
 		else
 		{
-			IHTMLDOMNode* pBodyNode = chaj::COM::GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pBody); SmartCOMRelease scBodyNode(pBodyNode);
-			IHTMLDOMNode* pNewScriptNode;
-			HRESULT hr = pBodyNode->appendChild(pScriptNode, &pNewScriptNode);
+			SmartCom<IHTMLDOMNode> pBodyNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pBody);
+			SmartCom<IHTMLDOMNode> pNewScriptNode;
+			HRESULT hr = pBodyNode->appendChild(pScriptNode, pNewScriptNode);
 			if (FAILED(hr))
 				TRACE(L"Unable to append javacript child. 2546suhfuugs\n");
-			pNewScriptNode->Release();
 		}
 	}
 	void wstring_replaceAll(wstring& out, const wstring& find, const wstring& replace)
@@ -1526,7 +1508,7 @@ private:
 			}
 		}
 
-		VARIANT varFilter; VariantInit(&varFilter); varFilter.vt = VT_DISPATCH; varFilter.pdispVal = pFullFilter;
+		VARIANT varFilter; VariantInit(&varFilter); varFilter.vt = VT_DISPATCH; varFilter.pdispVal = s_pFullFilter;
 		pDT->createTreeWalker(pRoot, SHOW_ELEMENT, &varFilter, VARIANT_TRUE, &pTW);
 	}
 	void AppendTermDivRec(IHTMLElement* pBody, const wstring& wTermCanonical, const TermRecord& rec)
@@ -1600,7 +1582,7 @@ private:
 		if (!pDoc)
 			return;
 
-		IHTMLElement* pBody = GetBodyFromDoc(pDoc); SmartCOMRelease scBody(pBody);
+		IHTMLElement* pBody = GetBodyFromDoc(pDoc);
 		if (!pBody)
 			return;
 
@@ -1843,20 +1825,22 @@ private:
 
 		HRESULT hr;
 
-		IHTMLElement* pRoot = nullptr;
-		pDoc->get_body(&pRoot); SmartCOMRelease scRoot(pRoot);
+		SmartCom<IHTMLElement> pRoot;
+		pDoc->get_body(pRoot);
 		if (!pRoot)
 			return nullptr;
 
-		IDocumentTraversal* pDT = nullptr;
-		hr = pDoc->QueryInterface(IID_IDocumentTraversal, (void**)&pDT); SmartCOMRelease scDT(pDT);
+		SmartCom<IDocumentTraversal> pDT = GetAlternateInterface<IHTMLDocument2,IDocumentTraversal>(pDoc);
 		if (!pDT)
 			return nullptr;
 
 		IDOMTreeWalker* pTW = nullptr;
 		VARIANT varNull; varNull.vt = VT_NULL;
-		hr = pDT->createTreeWalker(pRoot, SHOW_ELEMENT | SHOW_TEXT, &varNull, VARIANT_TRUE, &pTW); // allow requestor to Release
-		return pTW;
+		hr = pDT->createTreeWalker(pRoot, SHOW_ELEMENT | SHOW_TEXT, &varNull, VARIANT_TRUE, &pTW);
+		if (FAILED(hr) || !pTW)
+			return nullptr;
+		else
+			return pTW;
 	}
 	cache_it CacheTermAndReturnIt(const wstring& wWord) // optimizable
 	{
@@ -1901,13 +1885,13 @@ private:
 		wstring wOuterHTML;
 		unsigned int lastPosition = 0;
 
-		IHTMLElement *pNew = CreateElement(pDoc, L"span"); SmartCOMRelease scNew(pNew);
+		SmartCom<IHTMLElement> pNew = CreateElement(pDoc, L"span");
 		if (!pNew)
 			return;
 
-		IHTMLDOMNode* pNewNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pNew); SmartCOMRelease scNewNode(pNewNode);
-		IHTMLDOMNode* pTextNode = GetAlternateInterface<IHTMLDOMTextNode,IHTMLDOMNode>(pText); SmartCOMRelease scTextNode(pTextNode);
-		IHTMLElement* pBody = GetBodyFromDoc(pDoc); SmartCOMRelease scBody(pBody);
+		SmartCom<IHTMLDOMNode> pNewNode = GetAlternateInterface<IHTMLElement,IHTMLDOMNode>(pNew);
+		SmartCom<IHTMLDOMNode> pTextNode = GetAlternateInterface<IHTMLDOMTextNode,IHTMLDOMNode>(pText);
+		SmartCom<IHTMLElement> pBody = GetBodyFromDoc(pDoc);
 		if (!pBody || !pNewNode || !pTextNode)
 			return;
 
@@ -2009,7 +1993,7 @@ private:
 		if (lastPosition != wText.size()) // non-word text beyond last found word
 			wOuterHTML.append(wText.begin()+lastPosition, wText.end()); // append all remaining
 
-		HRESULT hr = pTextNode->replaceNode(pNewNode, &pTextNode);
+		HRESULT hr = pTextNode->replaceNode(pNewNode, pTextNode);
 		if (SUCCEEDED(hr))
 			hr = chaj::DOM::SetElementOuterHTML(pNew, wOuterHTML);
 	}
@@ -2020,7 +2004,7 @@ private:
 
 		const int MAX_MYSQL_INLIST_LEN = 500;
 
-		IHTMLDocument2* pDoc = GetInterfaceFromStream<IHTMLDocument2>(pDocStream); SmartCOMRelease scDoc(pDoc);
+		SmartCom<IHTMLDocument2> pDoc = GetInterfaceFromStream<IHTMLDocument2>(pDocStream);
 		if (!pDoc)
 			return;
 
@@ -2097,7 +2081,7 @@ private:
 
 		const int MAX_MYSQL_INLIST_LEN = 500;
 
-		IHTMLDocument2* pDoc = GetInterfaceFromStream<IHTMLDocument2>(pDocStream); SmartCOMRelease scDoc(pDoc);
+		SmartCom<IHTMLDocument2> pDoc = GetInterfaceFromStream<IHTMLDocument2>(pDocStream);
 		if (!pDoc)
 			return;
 
@@ -2174,7 +2158,7 @@ private:
 		if (!pDoc)
 			return;
 
-		IDOMTreeWalker* pDocTree = GetDocumentTree(pDoc); SmartCOMRelease scDocTree(pDocTree);
+		SmartCom<IDOMTreeWalker> pDocTree = GetDocumentTree(pDoc);
 		if (!pDocTree)
 			return;
 
@@ -2296,11 +2280,11 @@ private:
 		if (!pBrowserStream)
 			return;
 
-		IWebBrowser2* pBrowser = GetBrowserFromStream(pBrowserStream); SmartCOMRelease scBrowser(pBrowser);
+		SmartCom<IWebBrowser2> pBrowser = GetBrowserFromStream(pBrowserStream);
 		if (!pBrowser)
 			return;
 
-		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
+		SmartCom<IHTMLDocument2> pDoc = GetDocumentFromBrowser(pBrowser);
 		if (!pDoc)
 			return;
 
@@ -2308,7 +2292,7 @@ private:
 		AppendHtmlBlocks(pDoc);
 		AppendJavascript(pDoc);
 
-		IHTMLElement* pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc); SmartCOMRelease scSetupLink(pSetupLink);
+		SmartCom<IHTMLElement> pSetupLink = chaj::DOM::GetElementFromId(L"lwtSetupLink", pDoc);
 		if (!pSetupLink) // TODO: add an error log message
 			return;
 
@@ -2347,13 +2331,13 @@ private:
 
 		unordered_set<wstring> usetPageTerms; // used to track which terms have had an html hidden div record appended
 
-		IHTMLDocument2* pDoc = nullptr;
-		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, reinterpret_cast<LPVOID*>(&pDoc));
-		SmartCOMRelease scDoc(pDoc, true); // AddRef and schedule Release
+		SmartCom<IHTMLDocument2> pDoc;
+		HRESULT hr = CoGetInterfaceAndReleaseStream(pDocStream, IID_IHTMLDocument2, static_cast<LPVOID*>(pDoc));
+		
 		if (FAILED(hr) || !pDoc)
 			return;
 
-		IDOMTreeWalker* pDocTree = GetDocumentTree(pDoc); SmartCOMRelease scDocTree(pDocTree);
+		SmartCom<IDOMTreeWalker> pDocTree = GetDocumentTree(pDoc);
 		if (!pDocTree)
 			return;
 
@@ -2845,7 +2829,7 @@ private:
 		wstring wCurTermId(L"lwt");
 		wCurTermId.append(to_wstring(uTermID));
 
-		IHTMLElement* pCurTermDivRec = GetElementFromId(wCurTermId, pDoc); SmartCOMRelease scCurTermDivRec(pCurTermDivRec);
+		SmartCom<IHTMLElement> pCurTermDivRec = GetElementFromId(wCurTermId, pDoc);
 		if (pCurTermDivRec)
 		{
 			cs += SetAttributeValue(pCurTermDivRec, L"lwttrans", wNewTrans);
@@ -2859,7 +2843,7 @@ private:
 	}
 	void HandleUpdateTermInfo(IHTMLDocument2* pDoc)
 	{
-		IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc); SmartCOMRelease scCurInfoTerm(pCurInfoTerm);
+		SmartCom<IHTMLElement> pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc);
 		if (!pCurInfoTerm) return;
 
 		wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
@@ -2890,7 +2874,7 @@ private:
 	}
 	void HandleStatChange(IHTMLElement* pElement, IHTMLDocument2* pDoc)
 	{
-		IHTMLElement* pLast = GetElementFromId(L"lwtlasthovered", pDoc); SmartCOMRelease scLast(pLast);
+		SmartCom<IHTMLElement> pLast = GetElementFromId(L"lwtlasthovered", pDoc);
 		if (!pLast) return;
 
 		wstring wLast = GetAttributeValue(pLast, L"lwtterm");
@@ -2916,7 +2900,7 @@ private:
 	{
 		if (!pDoc) return;
 
-		IHTMLElement* pJSCommand = GetElementFromId(L"lwtJSCommand", pDoc); SmartCOMRelease scJSCommand(pJSCommand);
+		SmartCom<IHTMLElement> pJSCommand = GetElementFromId(L"lwtJSCommand", pDoc);
 		if (!pJSCommand) return;
 
 		chaj::DOM::SetAttributeValue(pJSCommand, L"lwtAction", L"");
@@ -2926,7 +2910,7 @@ private:
 	{
 		if (!pDoc) return false;
 
-		IHTMLElement* pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc); SmartCOMRelease scCurInfoTerm(pCurInfoTerm);
+		SmartCom<IHTMLElement> pCurInfoTerm = GetElementFromId(L"lwtcurinfoterm", pDoc);
 		if (!pCurInfoTerm) return false;
 
 		wstring wCurInfoTerm = GetAttributeValue(pCurInfoTerm, L"lwtterm");
@@ -2935,8 +2919,8 @@ private:
 		cache_cit it = cache->cfind(wCurInfoTerm);
 		if (TermNotCached(it)) return false;
 
-		IHTMLElement* pTrans = GetElementFromId(L"lwtshowtrans", pDoc); SmartCOMRelease scTrans(pTrans);
-		IHTMLElement* pRom = GetElementFromId(L"lwtshowtrans", pDoc); SmartCOMRelease scRom(pRom);
+		SmartCom<IHTMLElement> pTrans = GetElementFromId(L"lwtshowtrans", pDoc);
+		SmartCom<IHTMLElement> pRom = GetElementFromId(L"lwtshowtrans", pDoc);
 		if (!pTrans || !pRom)
 			return false;
 
@@ -2976,18 +2960,18 @@ private:
 	}
 	void OnClick()
 	{
-		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
+		SmartCom<IHTMLDocument2> pDoc = GetDocumentFromBrowser(pBrowser);
 		if (!pDoc)
 			return;
 
-		IHTMLEventObj* pEvent = GetEventFromDoc(pDoc); SmartCOMRelease scEvent(pEvent);
+		SmartCom<IHTMLEventObj> pEvent = GetEventFromDoc(pDoc);
 
-		IHTMLElement* pElement = GetClickedElementFromEvent(pEvent); SmartCOMRelease scElement(pElement);
+		SmartCom<IHTMLElement> pElement = GetClickedElementFromEvent(pEvent);
 
 		LPSTREAM pBrowserStream = GetBrowserStream();
 		LPSTREAM pElementStream = GetInterfaceStream(IID_IHTMLElement, pElement);
 
-		if (pBrowserStream)
+		if (pBrowserStream && pElementStream)
 			std::thread(&LwtBho::Thread_HandleClick, this, pBrowserStream, pElementStream).detach();
 	}
 	void Thread_HandleClick(LPSTREAM pBrowserStream, LPSTREAM pClickedElementStream)
@@ -2995,10 +2979,10 @@ private:
 		if (!pBrowserStream || !pClickedElementStream)
 			return;
 
-		IWebBrowser2* pBrowser = GetBrowserFromStream(pBrowserStream); SmartCOMRelease scBrowser(pBrowser);
-		IHTMLElement* pElement = GetInterfaceFromStream<IHTMLElement>(pClickedElementStream); SmartCOMRelease scElement(pElement);
+		SmartCom<IWebBrowser2> pBrowser = GetBrowserFromStream(pBrowserStream);
+		SmartCom<IHTMLElement> pElement = GetInterfaceFromStream<IHTMLElement>(pClickedElementStream);
 
-		IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
+		SmartCom<IHTMLDocument2> pDoc = GetDocumentFromBrowser(pBrowser);
 		if (!pDoc) return;
 
 		wstring wActionReq = GetAttributeValue(pElement, L"lwtAction");
@@ -3044,7 +3028,7 @@ private:
 			IDispatch* pCur = pDispParams->rgvarg[1].pdispVal;
 			if (pCur == pDispBrowser)
 			{
-				IHTMLDocument2* pDoc = GetDocumentFromBrowser(pBrowser); SmartCOMRelease scDoc(pDoc);
+				SmartCom<IHTMLDocument2> pDoc = GetDocumentFromBrowser(pBrowser);
 				ReceiveEvents(pDoc);
 				LPSTREAM pBrowserStream = GetBrowserStream();
 				if (pBrowserStream)
@@ -3093,10 +3077,26 @@ private:
 //pDispEx->Invoke(dispid, IID_NULL, NULL, DISPATCH_PROPERTYPUTREF, &params, NULL, NULL, NULL);
 
 private:
-	void GetCurrentTableSetPrefix();
+	// Init functions
+	void InitializeCriticalSections();
+
+	// Shutdown functions
+	void DeleteCriticalSections();
+	void WaitForThreadsToTerminate();
+
+	// Database functions
+	void ConnectToDatabase();
+	void GetLwtActiveTableSetPrefix();
+
+	void LoadCssFile();
 	void LoadJavascriptFile();
 
 	/* member variables */
+
+	// static members
+	static chaj::DOM::DOMIteratorFilter* s_pFilter;
+	static chaj::DOM::DOMIteratorFilter* s_pFullFilter;
+
 	unordered_set<wstring> usetCacheMWFragments;
 
 	// interfaces
@@ -3107,8 +3107,6 @@ private:
 	IDOMTreeWalker* pTW;
 	IDispatch* pDispBrowser;
 
-	chaj::DOM::DOMIteratorFilter* pFilter;
-	chaj::DOM::DOMIteratorFilter* pFullFilter;
 	HWND hBrowser;
 	DWORD dwCookie, Cookie_pHDev;
 	BOOL bDocumentCompleted;
@@ -3131,82 +3129,45 @@ private:
 	LWTCache* cache;
 	unordered_map<wstring, LWTCache*> cacheMap;
 	vector<std::thread*> cpThreads;
+	int mNumDetachedThreads;
 	// wregex
 	wregex_iterator rend;
 	bool bShuttingDown;
 	CRITICAL_SECTION CS_UseDBConn;
+	CRITICAL_SECTION CS_General;
 };
 
-inline void LwtBho::GetCurrentTableSetPrefix()
-{
-	if (tStmt.execute_direct(tConn, L"select COALESCE(LWTValue, '') from _lwtgeneral where LWTKey = 'current_table_prefix'"))
-	{
-		if (tStmt.fetch_next())
-		{
-			wTableSetPrefix = tStmt.field(1).as_string();
-			if (wTableSetPrefix.size()) // only a non-null prefix should be _ terminated, the default is not such
-				wTableSetPrefix.append(L"_");
-		}
-		tStmt.free_results();
-	}
-}
-
-inline void LwtBho::LoadJavascriptFile()
-{
-	HRSRC rc = ::FindResource(hInstance, MAKEINTRESOURCE(IDR_LWTJAVASCRIPT01),
-		MAKEINTRESOURCE(JAVASCRIPT));
-	HGLOBAL rcData = ::LoadResource(hInstance, rc);
-	//DWORD size = ::SizeofResource(hInstance, rc);
-	wJavascript = to_wstring(static_cast<const char*>(::LockResource(rcData)));
-}
-
 inline LwtBho::LwtBho()
+	:
+	bDocumentCompleted(false),
+	bShuttingDown(false),
+	bWithSpaces(true),
+	cache(nullptr),
+	Cookie_pHDev(0),
+	dwCookie(0),
+	hBrowser(nullptr),
+	mNumDetachedThreads(0),
+	pBrowser(nullptr),
+	pCP(nullptr),
+	pDispBrowser(nullptr),
+	pHDEv(nullptr),
+	pSite(nullptr),
+	pTW(nullptr),
+	ref(0)
 {
 #ifdef _DEBUG
 	mb("Here's your chance to attach debugger...");
 #endif
-	bShuttingDown = false;
 
-	pSite = nullptr;
-	pBrowser = nullptr;
-	pCP = nullptr;
-	pHDEv = nullptr;
-	pTW = nullptr;
-	pDispBrowser = nullptr;
-	cache = nullptr;
+	InitializeCriticalSections();
 
-	hBrowser = NULL;
-	dwCookie = NULL;
-	Cookie_pHDev = NULL;
-	bDocumentCompleted = false;
-	ref = 0;
-	wLgID = L"";
-	WordChars = L"";
-	SentDelims = L"";
-	SentDelimExcepts = L"";
-	bWithSpaces = true;
-	bstrUrl = "";
-
+	// load embedded resources
 	LoadJavascriptFile();
-	assert(this->wJavascript.size());
 	LoadCssFile();
-	assert(this->wCss.size());
 
-	if (!InitializeCriticalSectionAndSpinCount(&CS_UseDBConn, 0x00000400))
-		TRACE(L"Cound not initialize critical section CS_UseDBConn in LwtBho. 5110suhdg\n"); // hack: this needs to be addressed, but I didn't want to throw an exception from the constructor; research this
-
-	pFilter = new chaj::DOM::DOMIteratorFilter(&FilterNodes_LWTTerm);
-	pFullFilter = new chaj::DOM::DOMIteratorFilter(&FilterNodes_LWTTermAndSent);
-
-	//if (!tConn.connect(L"LWT", L"root", L""))
-	if (!tConn.lwtConnect(hBrowser))
-	{
-		//mb(_T("Cannot connect to the Data Source"));
-		//mb(tConn.last_error());
-		return;
-	}
-
-	GetCurrentTableSetPrefix();
+	// initiate database
+	ConnectToDatabase();
+	GetLwtActiveTableSetPrefix();
 	OnTableSetChange(nullptr, false);
 }
 
@@ -3214,25 +3175,11 @@ inline LwtBho::~LwtBho()
 {
 	bShuttingDown = true;
 
-	// wait for all threads to shut down
-	// thread is not deleted as this was causing issues for unknown reasons (would need troubleshooting)
-	// LwtBho destructor will free all objects soon enough anyway
-	for (unsigned int i = 0; i < cpThreads.size(); ++i)
-	{
-		if (cpThreads[i]->joinable())
-			cpThreads[i]->join();
-	}
-
-	// all other threads have exited, safe to delete critical sections
-	DeleteCriticalSection(&CS_UseDBConn);
-
-	if (pFilter != nullptr)
-		delete pFilter;
+	WaitForThreadsToTerminate();
+	DeleteCriticalSections();
 
 	for (auto cacheEntry : cacheMap)
-	{
 		delete cacheEntry.second;
-	}
 }
 
 #endif

@@ -54,10 +54,10 @@ namespace chaj
 		IHTMLElement* GetClickedElementFromEvent(IHTMLEventObj* pEvent);
 
 
-		IDOMTreeWalker* GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* pFilter, long lShow = SHOW_ALL);
+		IDOMTreeWalker* GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* s_pFilter, long lShow = SHOW_ALL);
 		IDOMTreeWalker* GetTreeWalkerWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, long (*FilterFunc)(IDispatch*), long lShow = SHOW_ALL);
 		IDOMNodeIterator* GetNodeIteratorWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, long (*FilterFunc)(IDispatch*), long lShow = SHOW_ALL);
-		IDOMNodeIterator* GetNodeIteratorWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* pFilter, long lShow = SHOW_ALL);
+		IDOMNodeIterator* GetNodeIteratorWithFilter(IHTMLDocument2* pDoc, IDispatch* pRootAt, IDispatch* s_pFilter, long lShow = SHOW_ALL);
 
 		HRESULT AppendStylesToDoc(const std::wstring& styles, IHTMLDocument2* pDoc);
 		HRESULT AppendHTMLAfterBegin(const std::wstring& toAppend, IHTMLElement* pElement);
