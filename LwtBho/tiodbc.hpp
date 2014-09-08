@@ -318,7 +318,8 @@ namespace tiodbc
 		int par_num;			//!< Order number of the parameter
 		_tstring _int_string;	//!< Internal string buffer
 		char _int_buffer[64];	//!< Internal buffer for small built-in types (64byte ... quite large)
-		SQLINTEGER _int_SLOIP;	//!< Internal Str Length Or Indicator Pointer
+		SQLLEN _int_SLOIP;		//!< Internal Str Length Or Indicator Pointer
+		//SQLINTEGER _int_SLOIP;	//!< Internal Str Length Or Indicator Pointer
 		
 		// Not direct contructable
 		param_impl(HSTMT _stmt, int _par_num);

@@ -3135,7 +3135,7 @@ private:
 	DWORD dwCookie, Cookie_pHDev;
 	BOOL bDocumentCompleted;
 	long ref;
-	mysqlpp::Connection conn;
+	mysqlpp::Connection conn = mysqlpp::Connection(true);
 	tiodbc::connection tConn;
 	tiodbc::statement tStmt;
 	wstring wTableSetPrefix;

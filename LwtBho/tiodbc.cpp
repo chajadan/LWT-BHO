@@ -306,7 +306,8 @@ namespace tiodbc
 	template<class T>
 	T __get_data(HSTMT _stmt, int _col, SQLSMALLINT _ttype, T error_value)
 	{	T tmp_storage;
-		SQLINTEGER cb_needed;
+		SQLLEN cb_needed;
+		//SQLINTEGER cb_needed;
 		RETCODE rc;
 		rc = SQLGetData(_stmt, _col, _ttype, &tmp_storage, sizeof(tmp_storage), &cb_needed);
 		if (!TIODBC_SUCCESS_CODE(rc))
@@ -342,7 +343,9 @@ namespace tiodbc
 
 	// Get field as string
 	_tstring field_impl::as_string() const
-	{	SQLINTEGER sz_needed = 0;
+	{	
+		SQLLEN sz_needed = 0;
+		//SQLINTEGER sz_needed = 0;
 		TCHAR small_buff[256];
 		RETCODE rc;
 				
@@ -404,7 +407,8 @@ namespace tiodbc
 		memcpy(dst_buf, &_value, sizeof(_value));
 
 		// Bind on internal buffer		
-		SQLINTEGER StrLenOrInPoint = 0;
+		SQLLEN StrLenOrInPoint = 0;
+		//SQLINTEGER StrLenOrInPoint = 0;
 		SQLBindParameter(_stmt,
 			_parnum,
 			SQL_PARAM_INPUT,
