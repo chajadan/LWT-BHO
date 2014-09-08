@@ -1,0 +1,79 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="chajDOM.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="chajUtil.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="HTMLLinguisticAnnotator.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="LwtBho.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="main.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="tiodbc.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Resource\resource.h">
+      <Filter>Resource</Filter>
+    </ClInclude>
+    <ClInclude Include="chajDOM.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="chajUtil.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="HTMLLinguisticAnnotator.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="LwtBho.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="LWTCache.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="TermRecord.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="tstring.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="tiodbc.hpp">
+      <Filter>Headers</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="main.def" />
+    <None Include="LwtBho.css" />
+    <None Include="Resource\settings.html">
+      <Filter>Resource</Filter>
+    </None>
+    <None Include="LwtBho.js" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="DocNotes.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Resource">
+      <UniqueIdentifier>{9a302f96-3e6d-4cc0-b2fa-75073141f869}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headers">
+      <UniqueIdentifier>{00bec575-91ea-42cd-b60d-8983e89c40dc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Sources">
+      <UniqueIdentifier>{26a568c3-bd88-40ba-ade7-36533a9755c3}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Resource\LwtBho.rc">
+      <Filter>Resource</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+</Project>
